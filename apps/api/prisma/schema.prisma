@@ -1,0 +1,1154 @@
+// Identity, tenancy and the organisational network.
+//
+// Company is a hard boundary: every row below it carries companyId, and every
+// query the API runs is scoped by the session's company. A super admin sits
+// OUTSIDE the tenancy (companyId is null) and is the only principal that may
+// act across companies.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Runtime goes through Supabase's transaction pooler (PgBouncer, :6543).
+  // Serverless functions open a connection per invocation, and a direct pool
+  // would be exhausted within minutes of real traffic.
+  url       = env("DATABASE_URL")
+  // Migrations and `db push` need a real session — PgBouncer's transaction mode
+  // cannot run the advisory locks and DDL they depend on.
+  directUrl = env("DIRECT_URL")
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  legalName String
+  gstin     String?
+  currency  String   @default("INR")
+  timezone  String   @default("Asia/Kolkata")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  roles     Role[]
+  users     User[]
+  locations StockLocation[]
+  links     StoreWarehouseLink[]
+
+  categories        Category[]
+  unitsOfMeasure    UnitOfMeasure[]
+  taxes             Tax[]
+  customers         Customer[]
+  suppliers         Supplier[]
+  paymentMethods    PaymentMethod[]
+  reasonCodes       ReasonCode[]
+  products          Product[]
+  skus              Sku[]
+  stockMovements    StockMovement[]
+  stockReservations StockReservation[]
+  stockTransfers    StockTransfer[]
+  stockAdjustments  StockAdjustment[]
+  orders            Order[]
+  invoices          Invoice[]
+  payments          Payment[]
+  salesReturns      SalesReturn[]
+  purchaseOrders    PurchaseOrder[]
+  goodsReceipts     GoodsReceipt[]
+  purchaseReturns   PurchaseReturn[]
+  dayEndClosings    DayEndClosing[]
+  discrepancies     Discrepancy[]
+
+  @@map("companies")
+}
+
+enum LocationKind {
+  store
+  warehouse
+}
+
+model StockLocation {
+  id          String       @id @default(cuid())
+  companyId   String
+  kind        LocationKind
+  code        String
+  name        String
+  addressLine String?
+  city        String?
+  state       String?
+  phone       String?
+  gstin       String?
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  suppliedBy     StoreWarehouseLink[] @relation("StoreLinks")
+  suppliesStores StoreWarehouseLink[] @relation("WarehouseLinks")
+  userAccess     UserLocationAccess[]
+
+  stockMovements    StockMovement[]
+  stockReservations StockReservation[]
+  transfersOut      StockTransfer[]    @relation("TransferSource")
+  transfersIn       StockTransfer[]    @relation("TransferDestination")
+  stockAdjustments  StockAdjustment[]
+  orders            Order[]
+  invoices          Invoice[]
+  payments          Payment[]
+  salesReturns      SalesReturn[]
+  purchaseOrders    PurchaseOrder[]
+  goodsReceipts     GoodsReceipt[]
+  purchaseReturns   PurchaseReturn[]
+  dayEndClosings    DayEndClosing[]
+  discrepancies     Discrepancy[]
+
+  // Codes are unique per company, not globally — two companies may both have ST-01.
+  @@unique([companyId, code])
+  @@index([companyId, kind])
+  @@map("stock_locations")
+}
+
+model StoreWarehouseLink {
+  id          String  @id @default(cuid())
+  companyId   String
+  storeId     String
+  warehouseId String
+  isPrimary   Boolean @default(false)
+
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  store     StockLocation @relation("StoreLinks", fields: [storeId], references: [id], onDelete: Cascade)
+  warehouse StockLocation @relation("WarehouseLinks", fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, warehouseId])
+  @@index([companyId])
+  @@map("store_warehouse_links")
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  permissions String[]
+  system      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  users   User[]
+
+  @@unique([companyId, name])
+  @@map("roles")
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  /// Null for a super admin — they sit outside every company.
+  companyId          String?
+  roleId             String?
+  name               String
+  /// Unique across the whole system, so a login never has to pick a tenant.
+  email              String    @unique
+  phone              String?
+  passwordHash       String
+  isSuperAdmin       Boolean   @default(false)
+  /// Reserved: admins set passwords directly today, so nothing sets this yet.
+  /// Turning on a forced reset later is a flag flip, not a migration.
+  mustChangePassword Boolean   @default(false)
+  active             Boolean   @default(true)
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  createdById        String?
+
+  company  Company?             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  role     Role?                @relation(fields: [roleId], references: [id])
+  sessions Session[]
+  access   UserLocationAccess[]
+
+  @@index([companyId])
+  @@map("users")
+}
+
+/// Which locations a user may work in. No rows means every location in their
+/// company — the same "empty is all" rule the prototype used.
+model UserLocationAccess {
+  id         String @id @default(cuid())
+  userId     String
+  locationId String
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location StockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, locationId])
+  @@map("user_location_access")
+}
+
+model Session {
+  /// The opaque value stored in the cookie. Random, never derived from the user.
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Append-only record of identity and onboarding actions.
+model AuditEntry {
+  id        String   @id @default(cuid())
+  companyId String?
+  actorId   String?
+  entity    String
+  entityId  String
+  action    String
+  summary   String
+  at        DateTime @default(now())
+
+  @@index([companyId, at])
+  @@map("audit_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Master data.
+//
+// The prototype kept units, taxes, payment methods and reason codes global.
+// They are company-scoped here: a tenant defines its own GST slabs, its own
+// tender types and its own reason vocabulary, and one tenant editing "UPI"
+// must never touch another's books. Everything below therefore carries
+// companyId and cascades with the company.
+//
+// Money is Decimal(12,2) and quantity is Decimal(12,3) everywhere — this is an
+// accounting ledger, and binary floating point silently loses paise.
+// ---------------------------------------------------------------------------
+
+/// Categories are a real master, not a string on the product: they drive the
+/// default tax a new SKU inherits and the order goods merchandise in. Free text
+/// made `Dairy`, `dairy` and `Dairy ` three different categories.
+model Category {
+  id           String  @id @default(cuid())
+  companyId    String
+  code         String
+  name         String
+  /// Merchandising order — low numbers first, ties broken by name.
+  sortOrder    Int     @default(0)
+  /// Tax a new SKU in this category starts on. In Indian retail the rate is
+  /// effectively decided by category: staples at 0–5%, packaged snacks at 18%.
+  defaultTaxId String?
+  description  String?
+  active       Boolean @default(true)
+
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  defaultTax Tax?      @relation(fields: [defaultTaxId], references: [id], onDelete: NoAction)
+  products   Product[]
+
+  @@unique([companyId, code])
+  @@index([companyId, active])
+  @@index([defaultTaxId])
+  @@map("categories")
+}
+
+model UnitOfMeasure {
+  id        String  @id @default(cuid())
+  companyId String
+  code      String
+  name      String
+  /// Decimals allowed when transacting, e.g. 0 for `pcs`, 3 for `kg`.
+  precision Int     @default(0)
+  active    Boolean @default(true)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  skus    Sku[]
+
+  @@unique([companyId, code])
+  @@map("units_of_measure")
+}
+
+model Tax {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String
+  /// Percentage, e.g. 18 for GST 18%. Decimal because 2.5% slabs exist.
+  rate      Decimal @db.Decimal(5, 2)
+  /// When true, sellingPrice already contains this tax.
+  inclusive Boolean @default(false)
+  hsnCode   String?
+  active    Boolean @default(true)
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  skus       Sku[]
+  categories Category[]
+
+  @@unique([companyId, name])
+  @@index([companyId, active])
+  @@map("taxes")
+}
+
+model Customer {
+  id          String  @id @default(cuid())
+  companyId   String
+  name        String
+  phone       String?
+  email       String?
+  gstin       String?
+  addressLine String?
+  creditLimit Decimal @default(0) @db.Decimal(12, 2)
+  active      Boolean @default(true)
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders   Order[]
+  invoices Invoice[]
+
+  /// Phone is how a counter looks a walk-in customer up, so it is indexed and
+  /// unique per company — but optional, because most sales are anonymous.
+  @@unique([companyId, phone])
+  @@index([companyId, name])
+  @@map("customers")
+}
+
+model Supplier {
+  id               String  @id @default(cuid())
+  companyId        String
+  name             String
+  phone            String?
+  email            String?
+  gstin            String?
+  paymentTermsDays Int     @default(0)
+  active           Boolean @default(true)
+
+  company         Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  purchaseOrders  PurchaseOrder[]
+  goodsReceipts   GoodsReceipt[]
+  purchaseReturns PurchaseReturn[]
+
+  @@index([companyId, name])
+  @@map("suppliers")
+}
+
+enum PaymentMethodKind {
+  cash
+  card
+  upi
+  wallet
+  credit
+  bank_transfer
+}
+
+model PaymentMethod {
+  id              String            @id @default(cuid())
+  companyId       String
+  code            String
+  name            String
+  kind            PaymentMethodKind
+  /// Counted in the physical cash drawer at day-end — this flag is what makes
+  /// expectedCash computable without hard-coding "cash".
+  countedInDrawer Boolean           @default(false)
+  active          Boolean           @default(true)
+
+  company        Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  payments       Payment[]
+  closingSummary DayEndSalesByMethod[]
+
+  @@unique([companyId, code])
+  @@map("payment_methods")
+}
+
+enum ReasonCodeUsage {
+  cancellation
+  return
+  adjustment
+  damage
+  discrepancy
+}
+
+/// A controlled vocabulary for "why". Every write-off, return and variance must
+/// point at one, so shrinkage can be reported by cause instead of free text.
+model ReasonCode {
+  id        String          @id @default(cuid())
+  companyId String
+  usage     ReasonCodeUsage
+  code      String
+  name      String
+  active    Boolean         @default(true)
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockMovements   StockMovement[]
+  stockAdjustments StockAdjustment[]
+  salesReturns     SalesReturn[]
+  purchaseReturns  PurchaseReturn[]
+  discrepancies    Discrepancy[]
+
+  @@unique([companyId, usage, code])
+  @@index([companyId, usage])
+  @@map("reason_codes")
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue.
+// ---------------------------------------------------------------------------
+
+model Product {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  categoryId  String
+  brand       String?
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: NoAction)
+  skus     Sku[]
+
+  @@index([companyId, active])
+  @@index([categoryId])
+  @@map("products")
+}
+
+/// A sellable variant of a product. Stock is ALWAYS tracked at SKU level, never
+/// at product level — the ledger, reservations and every line below key on skuId.
+///
+/// companyId is denormalised from Product so that code and barcode can be made
+/// unique per company: a barcode scan at the counter is a single indexed lookup,
+/// and two tenants may legitimately both stock `SKU-1`.
+model Sku {
+  id            String   @id @default(cuid())
+  companyId     String
+  productId     String
+  code          String
+  name          String
+  barcode       String
+  uomId         String
+  taxId         String
+  purchasePrice Decimal  @db.Decimal(12, 2)
+  sellingPrice  Decimal  @db.Decimal(12, 2)
+  mrp           Decimal? @db.Decimal(12, 2)
+  minStock      Decimal  @default(0) @db.Decimal(12, 3)
+  reorderLevel  Decimal  @default(0) @db.Decimal(12, 3)
+  active        Boolean  @default(true)
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  uom     UnitOfMeasure @relation(fields: [uomId], references: [id], onDelete: NoAction)
+  tax     Tax           @relation(fields: [taxId], references: [id], onDelete: NoAction)
+
+  stockMovements      StockMovement[]
+  stockReservations   StockReservation[]
+  transferLines       TransferLine[]
+  adjustmentLines     StockAdjustmentLine[]
+  orderLines          OrderLine[]
+  invoiceLines        InvoiceLine[]
+  salesReturnLines    SalesReturnLine[]
+  purchaseOrderLines  PurchaseOrderLine[]
+  goodsReceiptLines   GoodsReceiptLine[]
+  purchaseReturnLines PurchaseReturnLine[]
+
+  @@unique([companyId, code])
+  @@unique([companyId, barcode])
+  @@index([productId])
+  @@index([companyId, active])
+  @@index([uomId])
+  @@index([taxId])
+  @@map("skus")
+}
+
+// ---------------------------------------------------------------------------
+// Stock: the ledger and everything that writes to it.
+// ---------------------------------------------------------------------------
+
+enum StockMovementType {
+  opening
+  receipt
+  sale
+  sale_return
+  transfer_out
+  transfer_in
+  adjustment
+  damage
+}
+
+enum MovementRefType {
+  opening
+  goods_receipt
+  purchase_return
+  invoice
+  sales_return
+  transfer
+  adjustment
+  stock_count
+}
+
+/// THE core invariant of Shop Suite: stock is never a stored mutable number.
+/// Every stock-changing event appends one row here, and on-hand / available /
+/// reserved are folded from this ledger. Nothing in the system may UPDATE or
+/// DELETE a row in this table — a mistake is corrected by appending a reversing
+/// movement, which is why there is no updatedAt and no updatedBy column.
+///
+/// The read path is "sum qty for (skuId, locationId)", so that pair is indexed;
+/// reporting scans by company and time, so (companyId, createdAt) is indexed too.
+model StockMovement {
+  id           String            @id @default(cuid())
+  companyId    String
+  skuId        String
+  locationId   String
+  type         StockMovementType
+  /// Signed: positive adds to on-hand, negative removes. A sale is negative, a
+  /// receipt positive — so folding the ledger is a plain SUM with no case logic.
+  qty          Decimal           @db.Decimal(12, 3)
+  /// What caused the movement, and the id of that document. Together they make
+  /// every stock change traceable back to a business event.
+  refType      MovementRefType
+  refId        String
+  reasonCodeId String?
+  /// Cost per unit at the moment of the movement — the input to weighted
+  /// average valuation. Absent on movements that do not change value.
+  unitCost     Decimal?          @db.Decimal(12, 2)
+  note         String?
+  createdBy    String
+  createdAt    DateTime          @default(now())
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sku        Sku           @relation(fields: [skuId], references: [id], onDelete: NoAction)
+  location   StockLocation @relation(fields: [locationId], references: [id], onDelete: NoAction)
+  reasonCode ReasonCode?   @relation(fields: [reasonCodeId], references: [id], onDelete: NoAction)
+
+  @@index([skuId, locationId])
+  @@index([companyId, createdAt])
+  @@index([locationId, createdAt])
+  @@index([refType, refId])
+  @@map("stock_movements")
+}
+
+enum ReservationRefType {
+  order
+}
+
+enum ReservationStatus {
+  active
+  released
+  consumed
+}
+
+/// A soft hold placed by a confirmed order. It never touches the ledger — it
+/// only subtracts from `available`, so two counters cannot promise the same
+/// unit. Released on cancellation, consumed when the invoice writes the sale.
+model StockReservation {
+  id         String             @id @default(cuid())
+  companyId  String
+  skuId      String
+  locationId String
+  qty        Decimal            @db.Decimal(12, 3)
+  refType    ReservationRefType
+  refId      String
+  status     ReservationStatus
+  createdAt  DateTime           @default(now())
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sku      Sku           @relation(fields: [skuId], references: [id], onDelete: NoAction)
+  location StockLocation @relation(fields: [locationId], references: [id], onDelete: NoAction)
+
+  /// Only `active` rows are ever summed, so status leads the availability index.
+  @@index([skuId, locationId, status])
+  @@index([refType, refId])
+  @@index([companyId, status])
+  @@map("stock_reservations")
+}
+
+enum TransferStatus {
+  draft
+  in_transit
+  received
+  cancelled
+}
+
+/// A two-step move between any two stock locations. Dispatch writes
+/// `transfer_out` at the source, receipt writes `transfer_in` at the
+/// destination; between the two the stock belongs to neither location and is
+/// visible as in-transit. The two-step trail is what catches shortages, so
+/// auto-receive is opt-in rather than the default.
+model StockTransfer {
+  id             String         @id @default(cuid())
+  companyId      String
+  number         String
+  fromLocationId String
+  toLocationId   String
+  status         TransferStatus
+  note           String?
+  dispatchedBy   String
+  dispatchedAt   DateTime       @default(now())
+  receivedBy     String?
+  receivedAt     DateTime?
+  cancelledBy    String?
+  cancelledAt    DateTime?
+
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fromLocation StockLocation  @relation("TransferSource", fields: [fromLocationId], references: [id], onDelete: NoAction)
+  toLocation   StockLocation  @relation("TransferDestination", fields: [toLocationId], references: [id], onDelete: NoAction)
+  lines        TransferLine[]
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([fromLocationId, status])
+  @@index([toLocationId, status])
+  @@map("stock_transfers")
+}
+
+/// Lines inherit tenancy from their header and cascade with it — there is no
+/// companyId here on purpose, so a line can never disagree with its transfer.
+model TransferLine {
+  id          String  @id @default(cuid())
+  transferId  String
+  skuId       String
+  /// Quantity that left the source location.
+  qty         Decimal @db.Decimal(12, 3)
+  /// Quantity confirmed at the destination. A short receipt raises a discrepancy.
+  receivedQty Decimal @default(0) @db.Decimal(12, 3)
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  sku      Sku           @relation(fields: [skuId], references: [id], onDelete: NoAction)
+
+  @@unique([transferId, skuId])
+  @@index([skuId])
+  @@map("transfer_lines")
+}
+
+/// A counted correction against one location. The reason code is mandatory:
+/// unexplained stock changes are exactly what this table exists to prevent.
+model StockAdjustment {
+  id           String   @id @default(cuid())
+  companyId    String
+  locationId   String
+  reasonCodeId String
+  createdBy    String
+  createdAt    DateTime @default(now())
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   StockLocation         @relation(fields: [locationId], references: [id], onDelete: NoAction)
+  reasonCode ReasonCode            @relation(fields: [reasonCodeId], references: [id], onDelete: NoAction)
+  lines      StockAdjustmentLine[]
+
+  @@index([companyId, createdAt])
+  @@index([locationId, createdAt])
+  @@map("stock_adjustments")
+}
+
+model StockAdjustmentLine {
+  id           String  @id @default(cuid())
+  adjustmentId String
+  skuId        String
+  /// Signed, like the ledger row it produces: negative writes stock off.
+  qty          Decimal @db.Decimal(12, 3)
+  note         String?
+
+  adjustment StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  sku        Sku             @relation(fields: [skuId], references: [id], onDelete: NoAction)
+
+  @@index([adjustmentId])
+  @@index([skuId])
+  @@map("stock_adjustment_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Sales.
+//
+// Order → Invoice → Payment. The store is both the selling point and the stock
+// location, so `storeId` on these documents is a StockLocation id.
+//
+// Line rows snapshot skuCode, name, taxRate and taxInclusive at the moment of
+// sale. Repricing a SKU or editing a tax must never restate a historical
+// document, so `taxId` on a line is a recorded reference, not a foreign key.
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  draft
+  confirmed
+  invoiced
+  cancelled
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  companyId  String
+  number     String
+  storeId    String
+  customerId String?
+  status     OrderStatus
+
+  subTotal      Decimal @db.Decimal(12, 2)
+  discountTotal Decimal @default(0) @db.Decimal(12, 2)
+  taxableValue  Decimal @db.Decimal(12, 2)
+  taxTotal      Decimal @default(0) @db.Decimal(12, 2)
+  /// Cash rounding to the nearest rupee. May be positive or negative.
+  roundOff      Decimal @default(0) @db.Decimal(12, 2)
+  grandTotal    Decimal @db.Decimal(12, 2)
+
+  createdBy String
+  createdAt DateTime @default(now())
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  store    StockLocation @relation(fields: [storeId], references: [id], onDelete: NoAction)
+  customer Customer?     @relation(fields: [customerId], references: [id], onDelete: NoAction)
+  lines    OrderLine[]
+  invoices Invoice[]
+
+  @@unique([companyId, number])
+  @@index([companyId, createdAt])
+  @@index([storeId, status])
+  @@index([customerId])
+  @@map("orders")
+}
+
+model OrderLine {
+  id           String  @id @default(cuid())
+  orderId      String
+  skuId        String
+  /// Snapshots — the SKU may be renamed or recoded after the sale.
+  skuCode      String
+  name         String
+  qty          Decimal @db.Decimal(12, 3)
+  unitPrice    Decimal @db.Decimal(12, 2)
+  /// Absolute discount on the line, in currency — not a percentage.
+  discount     Decimal @default(0) @db.Decimal(12, 2)
+  taxId        String
+  taxRate      Decimal @db.Decimal(5, 2)
+  taxInclusive Boolean
+  taxableValue Decimal @db.Decimal(12, 2)
+  taxAmount    Decimal @db.Decimal(12, 2)
+  lineTotal    Decimal @db.Decimal(12, 2)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sku   Sku   @relation(fields: [skuId], references: [id], onDelete: NoAction)
+
+  @@index([orderId])
+  @@index([skuId])
+  @@map("order_lines")
+}
+
+enum InvoiceStatus {
+  unpaid
+  partially_paid
+  paid
+  cancelled
+  returned
+}
+
+/// The tax document and the event that writes `sale` movements to the ledger.
+/// `businessDate` is a plain YYYY-MM-DD string, not a timestamp: a day-end
+/// closing locks a business day, and a timestamp would drift across timezones
+/// and reopen a locked day.
+model Invoice {
+  id           String        @id @default(cuid())
+  companyId    String
+  number       String
+  orderId      String?
+  storeId      String
+  /// Free-form till identifier. There is no Counter master yet; day-end
+  /// closings group on this string.
+  counterId    String
+  customerId   String?
+  customerName String?
+  businessDate String
+  status       InvoiceStatus
+
+  subTotal      Decimal @db.Decimal(12, 2)
+  discountTotal Decimal @default(0) @db.Decimal(12, 2)
+  taxableValue  Decimal @db.Decimal(12, 2)
+  taxTotal      Decimal @default(0) @db.Decimal(12, 2)
+  roundOff      Decimal @default(0) @db.Decimal(12, 2)
+  grandTotal    Decimal @db.Decimal(12, 2)
+  /// Folded from payments; amountDue = grandTotal − amountPaid.
+  amountPaid    Decimal @default(0) @db.Decimal(12, 2)
+  amountDue     Decimal @default(0) @db.Decimal(12, 2)
+
+  createdBy String
+  createdAt DateTime @default(now())
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  store    StockLocation @relation(fields: [storeId], references: [id], onDelete: NoAction)
+  order    Order?        @relation(fields: [orderId], references: [id], onDelete: NoAction)
+  customer Customer?     @relation(fields: [customerId], references: [id], onDelete: NoAction)
+  lines    InvoiceLine[]
+  payments Payment[]
+  returns  SalesReturn[]
+
+  @@unique([companyId, number])
+  /// Day-end and every sales report scan one till for one business day.
+  @@index([storeId, businessDate, counterId])
+  @@index([companyId, businessDate])
+  @@index([customerId])
+  @@index([orderId])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id           String  @id @default(cuid())
+  invoiceId    String
+  skuId        String
+  skuCode      String
+  name         String
+  qty          Decimal @db.Decimal(12, 3)
+  unitPrice    Decimal @db.Decimal(12, 2)
+  discount     Decimal @default(0) @db.Decimal(12, 2)
+  taxId        String
+  taxRate      Decimal @db.Decimal(5, 2)
+  taxInclusive Boolean
+  taxableValue Decimal @db.Decimal(12, 2)
+  taxAmount    Decimal @db.Decimal(12, 2)
+  lineTotal    Decimal @db.Decimal(12, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  sku     Sku     @relation(fields: [skuId], references: [id], onDelete: NoAction)
+
+  @@index([invoiceId])
+  @@index([skuId])
+  @@map("invoice_lines")
+}
+
+enum PaymentStatus {
+  success
+  pending
+  failed
+  refunded
+}
+
+/// One row per tender: a split payment is several rows against one invoice, and
+/// a refund is a row with a NEGATIVE amount. That sign convention is what lets
+/// the cash drawer and sales-by-method figures net out with a plain SUM.
+///
+/// `idempotencyKey` is unique per company from day one, so a retried capture
+/// can never double-charge.
+model Payment {
+  id              String        @id @default(cuid())
+  companyId       String
+  invoiceId       String
+  storeId         String
+  counterId       String
+  businessDate    String
+  paymentMethodId String
+  /// Positive for a capture, negative for a refund. Never zero.
+  amount          Decimal       @db.Decimal(12, 2)
+  reference       String?
+  status          PaymentStatus
+  idempotencyKey  String
+  createdBy       String
+  createdAt       DateTime      @default(now())
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  store         StockLocation @relation(fields: [storeId], references: [id], onDelete: NoAction)
+  paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: NoAction)
+
+  @@unique([companyId, idempotencyKey])
+  @@index([invoiceId])
+  @@index([storeId, businessDate, counterId])
+  @@index([companyId, businessDate])
+  @@index([paymentMethodId])
+  @@map("payments")
+}
+
+/// Goods coming back from a customer. Writes positive `sale_return` movements
+/// at the store and, separately, a negative refund Payment against the invoice.
+model SalesReturn {
+  id           String   @id @default(cuid())
+  companyId    String
+  number       String
+  invoiceId    String
+  storeId      String
+  reasonCodeId String
+  refundTotal  Decimal  @db.Decimal(12, 2)
+  createdBy    String
+  createdAt    DateTime @default(now())
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoice    Invoice           @relation(fields: [invoiceId], references: [id], onDelete: NoAction)
+  store      StockLocation     @relation(fields: [storeId], references: [id], onDelete: NoAction)
+  reasonCode ReasonCode        @relation(fields: [reasonCodeId], references: [id], onDelete: NoAction)
+  lines      SalesReturnLine[]
+
+  @@unique([companyId, number])
+  @@index([invoiceId])
+  @@index([companyId, createdAt])
+  @@index([storeId, createdAt])
+  @@map("sales_returns")
+}
+
+model SalesReturnLine {
+  id            String  @id @default(cuid())
+  salesReturnId String
+  skuId         String
+  qty           Decimal @db.Decimal(12, 3)
+  refundAmount  Decimal @db.Decimal(12, 2)
+
+  salesReturn SalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  sku         Sku         @relation(fields: [skuId], references: [id], onDelete: NoAction)
+
+  @@index([salesReturnId])
+  @@index([skuId])
+  @@map("sales_return_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Purchasing.
+//
+// PurchaseOrder → GoodsReceipt → (PurchaseReturn). Only the receipt touches the
+// ledger: a PO is an intention, not stock. `locationId` is where the goods
+// land — usually a warehouse, but any stock location works.
+// ---------------------------------------------------------------------------
+
+enum PurchaseOrderStatus {
+  draft
+  sent
+  partially_received
+  received
+  cancelled
+}
+
+model PurchaseOrder {
+  id         String              @id @default(cuid())
+  companyId  String
+  number     String
+  supplierId String
+  locationId String
+  status     PurchaseOrderStatus
+  expectedAt DateTime?
+  createdBy  String
+  createdAt  DateTime            @default(now())
+
+  company  Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier Supplier            @relation(fields: [supplierId], references: [id], onDelete: NoAction)
+  location StockLocation       @relation(fields: [locationId], references: [id], onDelete: NoAction)
+  lines    PurchaseOrderLine[]
+  receipts GoodsReceipt[]
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([supplierId, status])
+  @@index([locationId, status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id              String  @id @default(cuid())
+  purchaseOrderId String
+  skuId           String
+  qty             Decimal @db.Decimal(12, 3)
+  /// Folded up from goods receipts; drives partially_received → received.
+  receivedQty     Decimal @default(0) @db.Decimal(12, 3)
+  unitCost        Decimal @db.Decimal(12, 2)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  sku           Sku           @relation(fields: [skuId], references: [id], onDelete: NoAction)
+
+  @@unique([purchaseOrderId, skuId])
+  @@index([skuId])
+  @@map("purchase_order_lines")
+}
+
+/// The event that puts purchased stock on hand. Good quantity becomes a
+/// `receipt` movement; damagedQty is received and immediately written off as a
+/// `damage` movement, so the supplier is still billed for what arrived.
+model GoodsReceipt {
+  id                String   @id @default(cuid())
+  companyId         String
+  number            String
+  purchaseOrderId   String
+  supplierId        String
+  locationId        String
+  supplierInvoiceNo String?
+  createdBy         String
+  createdAt         DateTime @default(now())
+
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  purchaseOrder PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction)
+  supplier      Supplier           @relation(fields: [supplierId], references: [id], onDelete: NoAction)
+  location      StockLocation      @relation(fields: [locationId], references: [id], onDelete: NoAction)
+  lines         GoodsReceiptLine[]
+  returns       PurchaseReturn[]
+
+  @@unique([companyId, number])
+  @@index([purchaseOrderId])
+  @@index([companyId, createdAt])
+  @@index([locationId, createdAt])
+  @@index([supplierId])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id             String  @id @default(cuid())
+  goodsReceiptId String
+  skuId          String
+  qty            Decimal @db.Decimal(12, 3)
+  unitCost       Decimal @db.Decimal(12, 2)
+  damagedQty     Decimal @default(0) @db.Decimal(12, 3)
+
+  goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  sku          Sku          @relation(fields: [skuId], references: [id], onDelete: NoAction)
+
+  @@index([goodsReceiptId])
+  @@index([skuId])
+  @@map("goods_receipt_lines")
+}
+
+/// Stock sent back to the supplier. Always against a receipt, so the cost being
+/// reversed is the cost that was actually booked.
+model PurchaseReturn {
+  id             String   @id @default(cuid())
+  companyId      String
+  number         String
+  goodsReceiptId String
+  supplierId     String
+  locationId     String
+  reasonCodeId   String
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  goodsReceipt GoodsReceipt         @relation(fields: [goodsReceiptId], references: [id], onDelete: NoAction)
+  supplier     Supplier             @relation(fields: [supplierId], references: [id], onDelete: NoAction)
+  location     StockLocation        @relation(fields: [locationId], references: [id], onDelete: NoAction)
+  reasonCode   ReasonCode           @relation(fields: [reasonCodeId], references: [id], onDelete: NoAction)
+  lines        PurchaseReturnLine[]
+
+  @@unique([companyId, number])
+  @@index([goodsReceiptId])
+  @@index([companyId, createdAt])
+  @@index([supplierId])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnLine {
+  id               String  @id @default(cuid())
+  purchaseReturnId String
+  skuId            String
+  qty              Decimal @db.Decimal(12, 3)
+  unitCost         Decimal @db.Decimal(12, 2)
+
+  purchaseReturn PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  sku            Sku            @relation(fields: [skuId], references: [id], onDelete: NoAction)
+
+  @@index([purchaseReturnId])
+  @@index([skuId])
+  @@map("purchase_return_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Day-end and exceptions.
+// ---------------------------------------------------------------------------
+
+enum ClosingStatus {
+  open
+  submitted
+  approved
+  rejected
+}
+
+/// Day-end closing for one till on one business day. Once approved it LOCKS the
+/// business day: no further invoice or payment may be dated into it. The
+/// (storeId, counterId, businessDate) uniqueness is what makes that lock real —
+/// a day cannot be closed twice.
+model DayEndClosing {
+  id              String        @id @default(cuid())
+  companyId       String
+  storeId         String
+  counterId       String
+  businessDate    String
+  openingCash     Decimal       @db.Decimal(12, 2)
+  /// Opening cash plus every drawer-counted tender. Computed, then frozen.
+  expectedCash    Decimal       @db.Decimal(12, 2)
+  physicalCash    Decimal       @db.Decimal(12, 2)
+  /// physicalCash − expectedCash. Negative = short, positive = excess.
+  variance        Decimal       @db.Decimal(12, 2)
+  depositedAmount Decimal       @default(0) @db.Decimal(12, 2)
+  /// Cash left in the drawer to open the next day.
+  carriedForward  Decimal       @default(0) @db.Decimal(12, 2)
+  note            String?
+  status          ClosingStatus
+  submittedBy     String?
+  submittedAt     DateTime?
+  approvedBy      String?
+  approvedAt      DateTime?
+
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  store         StockLocation         @relation(fields: [storeId], references: [id], onDelete: NoAction)
+  salesByMethod DayEndSalesByMethod[]
+
+  @@unique([storeId, counterId, businessDate])
+  @@index([companyId, businessDate])
+  @@index([companyId, status])
+  @@map("day_end_closings")
+}
+
+/// The per-tender breakdown frozen into a closing. A real table rather than a
+/// JSON blob so the amounts stay Decimal, and so a closing can be reconciled
+/// against payments with SQL instead of application code.
+model DayEndSalesByMethod {
+  id                String  @id @default(cuid())
+  closingId         String
+  paymentMethodId   String
+  /// Snapshots — a tender may be renamed or retired after the day is closed.
+  paymentMethodName String
+  kind              String
+  countedInDrawer   Boolean
+  txnCount          Int     @default(0)
+  amount            Decimal @db.Decimal(12, 2)
+
+  closing       DayEndClosing @relation(fields: [closingId], references: [id], onDelete: Cascade)
+  paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: NoAction)
+
+  @@unique([closingId, paymentMethodId])
+  @@index([paymentMethodId])
+  @@map("day_end_sales_by_method")
+}
+
+enum DiscrepancyKind {
+  payment
+  sales
+  stock
+  cash
+}
+
+enum DiscrepancyStatus {
+  open
+  investigating
+  resolved
+  written_off
+}
+
+/// Any expected-vs-actual mismatch worth a human decision: a short cash drawer,
+/// a short transfer receipt, a stock count that disagrees with the ledger. It is
+/// deliberately a first-class row rather than a note, so variance can be aged,
+/// assigned a cause and reported on.
+///
+/// `refType` is a free string because a discrepancy can point at any document.
+model Discrepancy {
+  id           String            @id @default(cuid())
+  companyId    String
+  kind         DiscrepancyKind
+  /// Where it arose: a store for cash, any location for stock.
+  locationId   String
+  businessDate String
+  refType      String
+  refId        String
+  expected     Decimal           @db.Decimal(12, 2)
+  actual       Decimal           @db.Decimal(12, 2)
+  /// actual − expected. Signed, so shortages and excesses net out in reports.
+  variance     Decimal           @db.Decimal(12, 2)
+  reasonCodeId String?
+  note         String?
+  status       DiscrepancyStatus
+  raisedBy     String
+  raisedAt     DateTime          @default(now())
+  resolvedBy   String?
+  resolvedAt   DateTime?
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   StockLocation @relation(fields: [locationId], references: [id], onDelete: NoAction)
+  reasonCode ReasonCode?   @relation(fields: [reasonCodeId], references: [id], onDelete: NoAction)
+
+  @@index([companyId, status])
+  @@index([companyId, businessDate])
+  @@index([locationId, status])
+  @@index([refType, refId])
+  @@index([reasonCodeId])
+  @@map("discrepancies")
+}

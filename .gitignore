@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+.turbo/
+.expo/
+*.log
+.DS_Store
+.env
+.env.local
+*.tsbuildinfo
+.vercel
+.env*
+
+# Expo prebuild output — generated, not source
+apps/mobile/android/
+apps/mobile/ios/

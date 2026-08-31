@@ -1,0 +1,16 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Metro (Expo) resolves far more predictably against a hoisted tree, and it keeps
+# a single React instance shared by the app and the workspace packages.
+nodeLinker: hoisted
+strictPeerDependencies: false
+autoInstallPeers: true
+
+allowBuilds:
+  esbuild: true
+  prisma: true
+  "@prisma/client": true
+  "@prisma/engines": true
+  "@node-rs/argon2": true

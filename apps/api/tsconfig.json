@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true
+  },
+  // The Vercel function lives at the repo root (Vercel only picks up
+  // functions from <project root>/api) but is API code, so it is typechecked here.
+  "include": ["src/**/*.ts", "prisma/**/*.ts", "../../api/**/*.ts"]
+}

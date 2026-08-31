@@ -1,0 +1,24 @@
+# The Vercel CLI does NOT read .gitignore when uploading. Without this file the
+# whole tree goes up — including 2.1 GB of Android build output, which fails on
+# the 100 MB per-file limit.
+
+node_modules
+.turbo
+.expo
+dist
+build
+*.log
+*.tsbuildinfo
+
+# The mobile app plays no part in the web deploy: it ships as an APK.
+apps/mobile
+
+# Local tooling and design scratch space.
+tools
+.superdesign
+.claude
+
+# Never upload credentials — Vercel holds these as project env vars.
+.env
+.env.*
+!.env.example
