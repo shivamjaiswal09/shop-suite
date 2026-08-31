@@ -3,6 +3,12 @@ import { idSchema, timestampSchema } from './common.ts';
 
 export const permissionSchema = z.enum([
   'sales.bill',
+  /**
+   * Typing a price over the catalogue's. Separate from `sales.bill` because
+   * ringing an item through at zero is how a till gets robbed, and the two are
+   * different jobs: a cashier bills, a supervisor discounts.
+   */
+  'sales.override_price',
   'sales.refund',
   'inventory.view',
   'inventory.adjust',

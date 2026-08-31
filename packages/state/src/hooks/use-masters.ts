@@ -2,7 +2,19 @@ import type { Category, ReasonCode, Tax } from '@shop/core';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { qk } from '../query-keys';
+import { STALE } from '../query-client';
 import { useRepositories } from '../repositories-provider';
+
+/*
+ * Master data, and the only place in the app that should be cached for long.
+ *
+ * These were previously `staleTime: Infinity`, which reads like the strongest
+ * possible caching and is in fact a correctness bug: a tax rate corrected by an
+ * admin would never reach a till that already had the old one, for as long as
+ * that app stayed open. STALE.REFERENCE is thirty minutes — long enough that a
+ * shop on mobile data is not refetching the tax table all day, bounded enough
+ * that a correction lands the same shift.
+ */
 
 /** The category master, ordered for merchandising. */
 export function useCategories(includeInactive = false) {
@@ -10,7 +22,7 @@ export function useCategories(includeInactive = false) {
   return useQuery({
     queryKey: ['masters', 'categories', includeInactive],
     queryFn: () => repos.masters.categories(includeInactive),
-    staleTime: 60_000,
+    staleTime: STALE.REFERENCE,
   });
 }
 
@@ -25,7 +37,7 @@ export function useTaxes(includeInactive = false) {
   return useQuery({
     queryKey: [...qk.taxes, includeInactive],
     queryFn: () => repos.masters.taxes(includeInactive),
-    staleTime: Infinity,
+    staleTime: STALE.REFERENCE,
   });
 }
 
@@ -40,15 +52,17 @@ export function useUnitsOfMeasure(includeInactive = false) {
   return useQuery({
     queryKey: [...qk.uoms, includeInactive],
     queryFn: () => repos.masters.unitsOfMeasure(includeInactive),
-    staleTime: Infinity,
+    staleTime: STALE.REFERENCE,
   });
 }
 
+/** Customers grow through the day at the till, so they are held less firmly. */
 export function useCustomers(includeInactive = false) {
   const repos = useRepositories();
   return useQuery({
     queryKey: [...qk.customers, includeInactive],
     queryFn: () => repos.masters.customers(includeInactive),
+    staleTime: STALE.ORG,
   });
 }
 
@@ -57,6 +71,7 @@ export function useSuppliers(includeInactive = false) {
   return useQuery({
     queryKey: [...qk.suppliers, includeInactive],
     queryFn: () => repos.masters.suppliers(includeInactive),
+    staleTime: STALE.ORG,
   });
 }
 
@@ -65,7 +80,7 @@ export function usePaymentMethods(includeInactive = false) {
   return useQuery({
     queryKey: [...qk.paymentMethods, includeInactive],
     queryFn: () => repos.masters.paymentMethods(includeInactive),
-    staleTime: Infinity,
+    staleTime: STALE.REFERENCE,
   });
 }
 
@@ -74,5 +89,6 @@ export function useReasonCodes(usage?: ReasonCode['usage'], includeInactive = fa
   return useQuery({
     queryKey: [...qk.reasonCodes(usage), includeInactive],
     queryFn: () => repos.masters.reasonCodes(usage, includeInactive),
+    staleTime: STALE.REFERENCE,
   });
 }

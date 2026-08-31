@@ -176,6 +176,51 @@ const auditIn = (
 ) => tx.auditEntry.create({ data });
 
 /**
+ * Typing a price over the catalogue's is a supervisor action, not a billing one.
+ *
+ * Without this gate, `sales.bill` — which the stock Cashier role carries — is
+ * enough to ring every item through at zero and pocket the cash, and because the
+ * document is internally consistent nothing downstream ever notices. Returns the
+ * overridden lines so the caller can record what was changed and by whom;
+ * an unaudited override is only marginally better than an ungated one.
+ */
+function assertMayOverridePrice(
+  caller: Principal,
+  inputs: readonly SaleLineInputShape[],
+): SaleLineInputShape[] {
+  const overridden = inputs.filter((line) => line.unitPriceOverride !== undefined);
+  if (overridden.length === 0) return overridden;
+
+  // `admin.manage` counts as consent because roles created before this
+  // permission existed do not carry it, and a company admin who could grant
+  // themselves the permission anyway gains nothing by being refused it. Run
+  // prisma/backfill-override-permission.ts to give existing Managers the
+  // explicit grant; until then they fall through to the error below.
+  const permitted =
+    caller.isSuperAdmin ||
+    caller.permissions.includes('sales.override_price') ||
+    caller.permissions.includes('admin.manage');
+  if (!permitted) {
+    throw new HttpError(403, 'Changing a price requires the sales.override_price permission');
+  }
+  return overridden;
+}
+
+/** Reads back as: SKU x, catalogue 100.00 -> billed 0.00. */
+const overrideSummary = (
+  document: string,
+  overridden: readonly SaleLineInputShape[],
+  priced: readonly SaleLine[],
+) =>
+  `Price overridden on ${document}: ` +
+  overridden
+    .map((input) => {
+      const line = priced.find((l) => l.skuId === input.skuId);
+      return `${line?.skuCode ?? input.skuId} → ${input.unitPriceOverride} ${input.overrideBasis ?? 'exclusive'} of tax`;
+    })
+    .join(', ');
+
+/**
  * Document numbers are per company, per series, per location — INV-BR1-000003.
  * The next value is read from the highest existing number rather than a counter
  * table: zero padding makes the lexical maximum the numeric maximum, and the
@@ -536,6 +581,9 @@ export async function registerSalesRoutes(app: FastifyInstance) {
 
     const { caller, companyId } = requireCompany(await principal(request), body.companyId);
     requirePermission(caller, 'sales.bill');
+    // Gated here too: an order converts to an invoice at the price it carries,
+    // so leaving this open would just move the same abuse one hop upstream.
+    const overridden = assertMayOverridePrice(caller, body.lines);
     if (body.lines.length === 0) throw new HttpError(400, 'An order needs at least one line');
 
     // Master data is read outside the transaction: pricing a cart reads the
@@ -586,6 +634,16 @@ export async function registerSalesRoutes(app: FastifyInstance) {
           action: 'create',
           summary: `Order ${created.number} confirmed for ₹${totals.grandTotal}`,
         });
+        if (overridden.length > 0) {
+          await auditIn(tx, {
+            companyId,
+            actorId: caller.userId,
+            entity: 'order',
+            entityId: created.id,
+            action: 'price_override',
+            summary: overrideSummary(created.number, overridden, lines),
+          });
+        }
         return created;
       }, TX),
     );
@@ -716,6 +774,7 @@ export async function registerSalesRoutes(app: FastifyInstance) {
 
     const { caller, companyId } = requireCompany(await principal(request), body.companyId);
     requirePermission(caller, 'sales.bill');
+    const overridden = assertMayOverridePrice(caller, body.lines);
     if (body.lines.length === 0) throw new HttpError(400, 'Cannot bill an empty cart');
 
     const store = await locationIn(prisma, companyId, body.storeId);
@@ -730,7 +789,7 @@ export async function registerSalesRoutes(app: FastifyInstance) {
         // never leaves a billed document behind.
         await assertAvailable(tx, companyId, store.id, lines);
 
-        return writeInvoice(tx, {
+        const written = await writeInvoice(tx, {
           companyId,
           actorId: caller.userId,
           store,
@@ -741,6 +800,20 @@ export async function registerSalesRoutes(app: FastifyInstance) {
           totals: calcTotals(lines),
           orderId: body.orderId,
         });
+
+        // Written inside the transaction so a discount can never be recorded
+        // without the invoice it discounted, or the other way round.
+        if (overridden.length > 0) {
+          await auditIn(tx, {
+            companyId,
+            actorId: caller.userId,
+            entity: 'invoice',
+            entityId: written.id,
+            action: 'price_override',
+            summary: overrideSummary(written.number, overridden, lines),
+          });
+        }
+        return written;
       }, TX),
     );
 
@@ -1089,7 +1162,12 @@ export async function registerSalesRoutes(app: FastifyInstance) {
 
   app.get('/purchase-orders', async (request) => {
     const query = z.object({ companyId: z.string().optional() }).parse(request.query);
-    const { companyId } = requireCompany(await principal(request), query.companyId);
+    const { caller, companyId } = requireCompany(await principal(request), query.companyId);
+    // Purchase documents carry what the shop pays its suppliers. Tenancy alone
+    // let any signed-in cashier read the whole company's cost base and margins;
+    // `purchase.manage` already exists on Admin and Manager, so gating on it
+    // needs no migration and takes nothing away from anyone who had a reason.
+    requirePermission(caller, 'purchase.manage');
     return prisma.purchaseOrder.findMany({
       where: { companyId },
       include: { lines: true },
@@ -1198,7 +1276,8 @@ export async function registerSalesRoutes(app: FastifyInstance) {
 
   app.get('/goods-receipts', async (request) => {
     const query = z.object({ companyId: z.string().optional() }).parse(request.query);
-    const { companyId } = requireCompany(await principal(request), query.companyId);
+    const { caller, companyId } = requireCompany(await principal(request), query.companyId);
+    requirePermission(caller, 'purchase.manage');
     return prisma.goodsReceipt.findMany({
       where: { companyId },
       include: { lines: true },
@@ -1344,7 +1423,8 @@ export async function registerSalesRoutes(app: FastifyInstance) {
 
   app.get('/purchase-returns', async (request) => {
     const query = z.object({ companyId: z.string().optional() }).parse(request.query);
-    const { companyId } = requireCompany(await principal(request), query.companyId);
+    const { caller, companyId } = requireCompany(await principal(request), query.companyId);
+    requirePermission(caller, 'purchase.manage');
     return prisma.purchaseReturn.findMany({
       where: { companyId },
       include: { lines: true },

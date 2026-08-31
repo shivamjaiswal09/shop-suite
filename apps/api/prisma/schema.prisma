@@ -193,6 +193,29 @@ model Session {
   @@map("sessions")
 }
 
+/// One row per *failed* sign-in, used to throttle guessing.
+///
+/// This lives in Postgres rather than in the process because the API is a
+/// serverless function: an in-memory counter is per container, and an attacker
+/// gets a fresh container simply by opening more connections. A shared table is
+/// the only counter every instance can agree on.
+///
+/// Successes are deliberately not recorded — a busy till would otherwise lock
+/// out the cashier using it correctly.
+model LoginAttempt {
+  id String @id @default(cuid())
+
+  /// Namespaced bucket: `email:someone@shop.in` or `ip:203.0.113.4`. Two
+  /// buckets per attempt means one stolen password list cannot be sprayed
+  /// across many accounts from one host, and one account cannot be ground down
+  /// from many hosts.
+  key String
+  at  DateTime @default(now())
+
+  @@index([key, at])
+  @@map("login_attempts")
+}
+
 /// Append-only record of identity and onboarding actions.
 model AuditEntry {
   id        String   @id @default(cuid())

@@ -2,17 +2,36 @@ import type { LocationKind } from '@shop/core';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { qk } from '../query-keys';
+import { STALE } from '../query-client';
 import { useRepositories } from '../repositories-provider';
 import { useSessionStore } from '../session';
 
+/*
+ * The shape of the organisation: which company, which stores and warehouses,
+ * who works there. All of it is edited by an admin from an onboarding screen,
+ * never by the till during a shift, so five minutes of staleness costs nothing
+ * and saves a request on every screen that renders a store switcher.
+ *
+ * The audit log is the exception — it is read precisely to see what just
+ * happened, so it stays live.
+ */
+
 export function useCompany() {
   const repos = useRepositories();
-  return useQuery({ queryKey: qk.company, queryFn: () => repos.org.company() });
+  return useQuery({
+    queryKey: qk.company,
+    queryFn: () => repos.org.company(),
+    staleTime: STALE.ORG,
+  });
 }
 
 export function useStores() {
   const repos = useRepositories();
-  return useQuery({ queryKey: qk.stores, queryFn: () => repos.org.stores() });
+  return useQuery({
+    queryKey: qk.stores,
+    queryFn: () => repos.org.stores(),
+    staleTime: STALE.ORG,
+  });
 }
 
 /**
@@ -38,7 +57,11 @@ export function useAccessibleStores() {
 /** Every warehouse in the company — warehouses are not owned by a store. */
 export function useWarehouses() {
   const repos = useRepositories();
-  return useQuery({ queryKey: qk.warehouses, queryFn: () => repos.org.warehouses() });
+  return useQuery({
+    queryKey: qk.warehouses,
+    queryFn: () => repos.org.warehouses(),
+    staleTime: STALE.ORG,
+  });
 }
 
 /** Every stock location, stores and warehouses alike. */
@@ -47,6 +70,7 @@ export function useLocations(kind?: LocationKind, includeInactive = false) {
   return useQuery({
     queryKey: [...qk.locations(kind), includeInactive],
     queryFn: () => repos.org.locations(kind, includeInactive),
+    staleTime: STALE.ORG,
   });
 }
 
@@ -57,25 +81,43 @@ export function useLinkedWarehouses(storeId: string | undefined) {
     queryKey: qk.linkedWarehouses(storeId ?? 'none'),
     queryFn: () => repos.org.linkedWarehouses(storeId!),
     enabled: Boolean(storeId),
+    staleTime: STALE.ORG,
   });
 }
 
 export function useStoreWarehouseLinks() {
   const repos = useRepositories();
-  return useQuery({ queryKey: ['store-warehouse-links'], queryFn: () => repos.org.links() });
+  return useQuery({
+    queryKey: ['store-warehouse-links'],
+    queryFn: () => repos.org.links(),
+    staleTime: STALE.ORG,
+  });
 }
 
 export function useUsers() {
   const repos = useRepositories();
-  return useQuery({ queryKey: ['users'], queryFn: () => repos.users.list() });
+  return useQuery({
+    queryKey: ['users'],
+    queryFn: () => repos.users.list(),
+    staleTime: STALE.ORG,
+  });
 }
 
 export function useRoles() {
   const repos = useRepositories();
-  return useQuery({ queryKey: ['roles'], queryFn: () => repos.users.roles() });
+  return useQuery({
+    queryKey: ['roles'],
+    queryFn: () => repos.users.roles(),
+    staleTime: STALE.ORG,
+  });
 }
 
+/** Read to see what just happened, so it is never served from cache. */
 export function useAuditLog(limit = 50) {
   const repos = useRepositories();
-  return useQuery({ queryKey: [...qk.audit, limit], queryFn: () => repos.audit.list(limit) });
+  return useQuery({
+    queryKey: [...qk.audit, limit],
+    queryFn: () => repos.audit.list(limit),
+    staleTime: STALE.LIVE,
+  });
 }

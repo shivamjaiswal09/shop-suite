@@ -1,9 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  assertLoginAllowed,
   assertPasswordAcceptable,
+  clearLoginFailures,
   createSession,
+  currentSessionId,
   destroySession,
+  purgeExpired,
+  recordFailedLogin,
   hashPassword,
   HttpError,
   principalFrom,
@@ -18,6 +23,10 @@ import { prisma } from './db.ts';
 /** Permissions a freshly created company's Admin role gets. */
 const ADMIN_PERMISSIONS = [
   'sales.bill',
+  // Deliberately separate from `sales.bill`. Typing a price over the one the
+  // catalogue says is how a till gets robbed: ring the item at zero, take the
+  // cash, and the books balance. A cashier bills; a supervisor discounts.
+  'sales.override_price',
   'sales.refund',
   'inventory.view',
   'inventory.adjust',
@@ -95,20 +104,35 @@ export async function registerRoutes(app: FastifyInstance) {
       .object({ email: z.string().email(), password: z.string().min(1) })
       .parse(request.body);
 
+    const email = body.email.trim().toLowerCase();
+    // Before the lookup and before argon2: an attempt that is already over the
+    // limit must cost us nothing to refuse.
+    await assertLoginAllowed(request, email);
+
     const user = await prisma.user.findUnique({
-      where: { email: body.email.trim().toLowerCase() },
+      where: { email },
       include: { company: true, access: true },
     });
 
     // One message for both branches: revealing which emails exist is a gift
     // to anyone enumerating accounts.
     const invalid = new HttpError(401, 'Email or password is incorrect');
-    if (!user || !user.active) throw invalid;
-    if (!(await verifyPassword(user.passwordHash, body.password))) throw invalid;
+    if (!user || !user.active) {
+      await recordFailedLogin(request, email);
+      throw invalid;
+    }
+    if (!(await verifyPassword(user.passwordHash, body.password))) {
+      await recordFailedLogin(request, email);
+      throw invalid;
+    }
     if (user.company && !user.company.active) throw new HttpError(403, 'This company is deactivated');
 
     await createSession(reply, user.id, request.headers['user-agent']);
-    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await Promise.all([
+      prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
+      clearLoginFailures(email),
+    ]);
+    purgeExpired();
 
     return { user: publicUser(user, user.access), company: user.company };
   });
@@ -155,8 +179,13 @@ export async function registerRoutes(app: FastifyInstance) {
       where: { id: user.id },
       data: { passwordHash: await hashPassword(body.newPassword), mustChangePassword: false },
     });
-    // Every other session for this user dies with the old password.
-    await prisma.session.deleteMany({ where: { userId: user.id } });
+    // Every other session for this user dies with the old password — but not
+    // the one doing the changing. Logging someone out for choosing a stronger
+    // password teaches them not to bother.
+    const keep = currentSessionId(request);
+    await prisma.session.deleteMany({
+      where: { userId: user.id, ...(keep ? { NOT: { id: keep } } : {}) },
+    });
     await audit({
       companyId: user.companyId,
       actorId: user.id,

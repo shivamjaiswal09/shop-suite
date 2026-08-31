@@ -1,5 +1,6 @@
-import { useLogout, useSessionStore } from '@shop/state';
-import { LogOut, Moon, Store, Sun } from 'lucide-react';
+import { useLogout, usePermissions, useSessionStore } from '@shop/state';
+import { LogOut, Moon, Smartphone, Store, Sun } from 'lucide-react';
+import { useMemo } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { ErrorBoundary } from './error-boundary';
 import { StoreSwitcher } from './store-switcher';
@@ -15,6 +16,14 @@ export function AppShell() {
   const toggleTheme = useSessionStore((s) => s.toggleTheme);
   const logout = useLogout();
 
+  // `usePermissions` is empty while the role master loads, so a gated item stays
+  // hidden until the answer is known rather than flashing in and disappearing.
+  const granted = usePermissions();
+  const visibleNav = useMemo(
+    () => NAV.filter((item) => !item.permission || granted.has(item.permission)),
+    [granted],
+  );
+
   return (
     <div className="flex min-h-screen bg-background">
       <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-card lg:flex">
@@ -29,7 +38,7 @@ export function AppShell() {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-          {NAV.map((item) => {
+          {visibleNav.map((item) => {
             const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
             return (
               <div key={item.to}>
@@ -71,6 +80,17 @@ export function AppShell() {
         </nav>
 
         <div className="border-t border-border p-3">
+          {/* Sits above the account row rather than in NAV, because it leaves the
+              app rather than navigating within it — and an owner setting up a
+              second counter needs to find it without being sent a URL. */}
+          <NavLink
+            to="/download"
+            className="mb-1 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Smartphone className="h-4 w-4 shrink-0" />
+            <span className="truncate">Get the Android app</span>
+          </NavLink>
+
           <div className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5">
             <div className="min-w-0">
               <p className="truncate text-xs font-medium">{user?.name}</p>

@@ -343,7 +343,10 @@ export function registerInventoryRoutes(app: FastifyInstance) {
         skuId: z.string().optional(),
         locationId: z.string().optional(),
         type: z.enum(MOVEMENT_TYPES).optional(),
-        limit: z.coerce.number().int().positive().max(1000).optional(),
+        // Defaulted, not optional. Omitting it used to mean "every movement this
+        // company has ever recorded" — the one table guaranteed to grow without
+        // bound, streamed to whoever asked.
+        limit: z.coerce.number().int().positive().max(1000).default(200),
       })
       .parse(request.query);
     const { companyId } = await scope(request, query.companyId, VIEW);
@@ -358,7 +361,7 @@ export function registerInventoryRoutes(app: FastifyInstance) {
       // Newest first, with the id breaking ties so a batch posted on one
       // timestamp still comes back in the order it was written.
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-      ...(query.limit ? { take: query.limit } : {}),
+      take: query.limit,
     });
     return rows.map(toMovement);
   });
@@ -550,6 +553,7 @@ export function registerInventoryRoutes(app: FastifyInstance) {
         companyId: z.string().optional(),
         locationId: z.string().optional(),
         status: z.enum(['draft', 'in_transit', 'received', 'cancelled']).optional(),
+        limit: z.coerce.number().int().positive().max(500).default(100),
       })
       .parse(request.query);
     const { companyId } = await scope(request, query.companyId, VIEW);
@@ -567,6 +571,9 @@ export function registerInventoryRoutes(app: FastifyInstance) {
       },
       include: LINES,
       orderBy: [{ dispatchedAt: 'desc' }, { id: 'asc' }],
+      // Each row drags its lines along, so an unbounded read here is heavier
+      // than the row count suggests.
+      take: query.limit,
     });
     return rows.map(toTransfer);
   });

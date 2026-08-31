@@ -5,6 +5,7 @@ import { AppShell } from './components/app-shell';
 import { PlatformConsolePage } from './pages/platform/companies';
 import { AdministrationPage } from './pages/administration';
 import { DayEndClosingPage } from './pages/closing/day-end';
+import { DownloadPage } from './pages/download';
 import { HomePage } from './pages/home';
 import { MovementsPage } from './pages/inventory/movements';
 import { OnboardLocationsPage } from './pages/onboarding/locations';
@@ -35,9 +36,16 @@ export function App() {
 
   // A super admin has no company and no store, so none of the retail modules
   // can render for them. They get the platform console and nothing else.
+  // Listed in every branch below rather than once at the top, because each
+  // branch renders its own <Routes> tree. It has to appear in all three: a new
+  // cashier needs the app before they have anything to sign in with, so gating
+  // the download behind a session would be circular.
+  const downloadRoute = <Route path="/download" element={<DownloadPage />} />;
+
   if (isAuthenticated && isSuperAdmin) {
     return (
       <Routes>
+        {downloadRoute}
         <Route path="*" element={<PlatformConsolePage />} />
       </Routes>
     );
@@ -46,6 +54,7 @@ export function App() {
   if (!isAuthenticated) {
     return (
       <Routes>
+        {downloadRoute}
         <Route path="/login" element={<LoginPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -54,6 +63,7 @@ export function App() {
 
   return (
     <Routes>
+      {downloadRoute}
       <Route path="/login" element={<Navigate to="/" replace />} />
       <Route element={<AppShell />}>
         <Route index element={<HomePage />} />

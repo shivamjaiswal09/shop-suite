@@ -1,6 +1,7 @@
 import { useLogin } from '@shop/state';
-import { Store } from 'lucide-react';
+import { Smartphone, Store } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
 
@@ -65,7 +66,14 @@ export function LoginPage() {
         </form>
 
         <div className="mt-6 border-t border-border pt-4">
-          <p className="text-[11px] text-muted-foreground">
+          <Link
+            to="/download"
+            className="flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+          >
+            <Smartphone className="h-3.5 w-3.5" />
+            Get the Android app for the counter
+          </Link>
+          <p className="mt-3 text-[11px] text-muted-foreground">
             Sign-in is verified by the API against an argon2 hash. Ask your administrator to create
             your account and set your password — there is no self-service sign-up.
           </p>
