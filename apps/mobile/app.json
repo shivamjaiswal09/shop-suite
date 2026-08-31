@@ -20,7 +20,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 2
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -45,6 +46,13 @@
         "projectId": "f2a9417a-f9b9-4563-bf6c-68a5a040fb48"
       }
     },
-    "owner": "shivam0009"
+    "owner": "shivam0009",
+    "updates": {
+      "url": "https://u.expo.dev/f2a9417a-f9b9-4563-bf6c-68a5a040fb48",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    }
   }
 }
