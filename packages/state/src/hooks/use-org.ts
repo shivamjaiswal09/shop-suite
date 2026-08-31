@@ -25,8 +25,11 @@ export function useAccessibleStores() {
 
   const data = useMemo(() => {
     const all = query.data ?? [];
-    if (!user || user.storeIds.length === 0) return all;
-    return all.filter((store) => user.storeIds.includes(store.id));
+    // Treat a missing list the same as an empty one. A server that forgets the
+    // field should narrow nobody's access, not take the whole app down.
+    const scoped = user?.storeIds ?? [];
+    if (!user || scoped.length === 0) return all;
+    return all.filter((store) => scoped.includes(store.id));
   }, [query.data, user]);
 
   return { ...query, data };

@@ -61,7 +61,7 @@ type UserRow = {
   createdAt: Date;
 };
 
-const publicUser = (user: UserRow) => ({
+const publicUser = (user: UserRow, access?: { locationId: string }[]) => ({
   id: user.id,
   name: user.name,
   email: user.email,
@@ -73,6 +73,10 @@ const publicUser = (user: UserRow) => ({
   roleId: user.roleId,
   lastLoginAt: user.lastLoginAt,
   createdAt: user.createdAt,
+  // Always arrays, never undefined: an empty list means "every location in the
+  // company", which is a meaningful answer. Absent is not.
+  storeIds: user.companyId ? (access ?? []).map((a) => a.locationId) : [],
+  locationIds: (access ?? []).map((a) => a.locationId),
 });
 
 export async function registerRoutes(app: FastifyInstance) {
@@ -93,7 +97,7 @@ export async function registerRoutes(app: FastifyInstance) {
 
     const user = await prisma.user.findUnique({
       where: { email: body.email.trim().toLowerCase() },
-      include: { company: true },
+      include: { company: true, access: true },
     });
 
     // One message for both branches: revealing which emails exist is a gift
@@ -106,7 +110,7 @@ export async function registerRoutes(app: FastifyInstance) {
     await createSession(reply, user.id, request.headers['user-agent']);
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
-    return { user: publicUser(user), company: user.company };
+    return { user: publicUser(user, user.access), company: user.company };
   });
 
   app.post('/auth/logout', async (request, reply) => {
@@ -125,7 +129,7 @@ export async function registerRoutes(app: FastifyInstance) {
     if (!user) return { user: null };
 
     return {
-      user: publicUser(user),
+      user: publicUser(user, user.access),
       company: user.company,
       role: user.role,
       permissions: caller.permissions,
@@ -236,7 +240,7 @@ export async function registerRoutes(app: FastifyInstance) {
     });
 
     reply.code(201);
-    return { company: result.company, admin: publicUser(result.admin) };
+    return { company: result.company, admin: publicUser(result.admin, []) };
   });
 
   app.patch('/companies/:id', async (request) => {
@@ -393,7 +397,7 @@ export async function registerRoutes(app: FastifyInstance) {
       orderBy: { createdAt: 'asc' },
     });
     return users.map((user) => ({
-      ...publicUser(user),
+      ...publicUser(user, user.access),
       role: user.role,
       locationIds: user.access.map((a) => a.locationId),
     }));
@@ -451,7 +455,7 @@ export async function registerRoutes(app: FastifyInstance) {
     });
 
     reply.code(201);
-    return { ...publicUser(user), role: user.role, locationIds: user.access.map((a) => a.locationId) };
+    return { ...publicUser(user, user.access), role: user.role };
   });
 
   app.patch('/users/:id', async (request) => {
@@ -508,7 +512,7 @@ export async function registerRoutes(app: FastifyInstance) {
       action: 'update',
       summary: `User ${user.email} updated`,
     });
-    return { ...publicUser(user), role: user.role, locationIds: user.access.map((a) => a.locationId) };
+    return { ...publicUser(user, user.access), role: user.role };
   });
 
   /** An admin setting someone else's password. No current password needed. */

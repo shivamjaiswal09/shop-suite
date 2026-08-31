@@ -4,6 +4,9 @@
   "buildCommand": "pnpm --filter @shop/api exec prisma generate && pnpm --filter @shop/api build && pnpm --filter @shop/web build",
   "outputDirectory": "apps/web/dist",
   "framework": null,
+  "regions": [
+    "sin1"
+  ],
   "functions": {
     "api/index.ts": {
       "maxDuration": 30

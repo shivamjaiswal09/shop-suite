@@ -112,9 +112,9 @@ export function OnboardUsersPage() {
                     </Td>
                     <Td>{roleById.get(user.roleId)?.name ?? '—'}</Td>
                     <Td className="text-xs">
-                      {user.storeIds.length === 0
+                      {(user.storeIds ?? []).length === 0
                         ? 'All stores'
-                        : user.storeIds.map((id) => storeById.get(id)?.code ?? id).join(', ')}
+                        : (user.storeIds ?? []).map((id) => storeById.get(id)?.code ?? id).join(', ')}
                     </Td>
                     <Td className="text-right">
                       <Badge tone={user.active ? 'success' : 'neutral'}>{user.active ? 'Yes' : 'No'}</Badge>
@@ -141,7 +141,7 @@ export function OnboardUsersPage() {
                                 name: 'storeId',
                                 label: 'Store access',
                                 type: 'select',
-                                initial: user.storeIds[0] ?? ALL_STORES,
+                                initial: user.storeIds?.[0] ?? ALL_STORES,
                                 span: 2,
                                 options: [
                                   { value: ALL_STORES, label: 'All stores' },
