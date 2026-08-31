@@ -13,6 +13,10 @@ expo-env.d.ts
 .kotlin/
 *.orig.*
 *.jks
+# Keystore passwords for local release builds. The keystore this points at
+# signs every APK the shops install; a replacement key cannot upgrade them.
+credentials.json
+credentials/
 *.p8
 *.p12
 *.key
