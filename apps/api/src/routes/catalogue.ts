@@ -1,4 +1,5 @@
 import type {
+  BillFieldConfig,
   Category,
   Customer,
   PaymentMethod,
@@ -147,6 +148,19 @@ const publicPaymentMethod = (row: PaymentMethod) => ({
   name: row.name,
   kind: row.kind,
   countedInDrawer: row.countedInDrawer,
+  active: row.active,
+});
+
+const publicBillField = (row: BillFieldConfig) => ({
+  id: row.id,
+  companyId: row.companyId,
+  builtin: row.builtin,
+  key: row.key,
+  label: row.label,
+  scope: row.scope,
+  type: row.type,
+  required: row.required,
+  sortOrder: row.sortOrder,
   active: row.active,
 });
 
@@ -483,6 +497,100 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
       summary: `Tax ${tax.name} updated`,
     });
     return publicTax(tax);
+  });
+
+  /* ------------------------------------------------------------ bill fields */
+
+  app.get('/bill-fields', async (request) => {
+    const query = listQuery.parse(request.query);
+    const { companyId } = requireCompany(await who(request), query.companyId);
+    const rows = await prisma.billFieldConfig.findMany({
+      where: { companyId, ...activeFilter(query.includeInactive) },
+      orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
+    });
+    return rows.map(publicBillField);
+  });
+
+  app.post('/bill-fields', async (request, reply) => {
+    const body = z
+      .object({
+        companyId: z.string().optional(),
+        builtin: z.enum(['name', 'phone', 'email', 'gstin', 'addressLine']).nullish(),
+        key: z.string().min(1),
+        label: z.string().min(1),
+        scope: z.enum(['customer', 'sale']),
+        type: z.enum(['text', 'number', 'phone']).default('text'),
+        required: z.boolean().default(false),
+        sortOrder: z.number().int().default(0),
+      })
+      .parse(request.body);
+    const { caller, companyId } = await gate(request, body.companyId, MANAGE);
+
+    const key = body.key.trim();
+    await assertFree(
+      prisma.billFieldConfig.findFirst({ where: { companyId, key: sameText(key) } }),
+      `A bill field with the key ${key} already exists`,
+    );
+
+    const created = await prisma.billFieldConfig.create({
+      data: {
+        companyId,
+        builtin: body.builtin ?? null,
+        key,
+        label: body.label.trim(),
+        scope: body.scope,
+        type: body.type,
+        required: body.required,
+        sortOrder: body.sortOrder,
+      },
+    });
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'bill_field',
+      entityId: created.id,
+      action: 'create',
+      summary: `Bill field ${created.label} added`,
+    });
+    reply.code(201);
+    return publicBillField(created);
+  });
+
+  app.patch('/bill-fields/:id', async (request) => {
+    const { id } = idParam.parse(request.params);
+    // `key` is deliberately absent: invoices already store answers against it,
+    // so re-keying a field would orphan every value captured so far.
+    const patch = z
+      .object({
+        label: z.string().min(1).optional(),
+        scope: z.enum(['customer', 'sale']).optional(),
+        type: z.enum(['text', 'number', 'phone']).optional(),
+        required: z.boolean().optional(),
+        sortOrder: z.number().int().optional(),
+        active: z.boolean().optional(),
+      })
+      .parse(request.body);
+
+    const existing = found(
+      await prisma.billFieldConfig.findUnique({ where: { id } }),
+      'BillFieldConfig',
+      id,
+    );
+    const { caller, companyId } = await gate(request, existing.companyId, MANAGE);
+
+    const updated = await prisma.billFieldConfig.update({
+      where: { id },
+      data: { ...patch, label: patch.label?.trim() },
+    });
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'bill_field',
+      entityId: id,
+      action: 'update',
+      summary: `Bill field ${updated.label} updated`,
+    });
+    return publicBillField(updated);
   });
 
   /* ------------------------------------------------------------- customers */

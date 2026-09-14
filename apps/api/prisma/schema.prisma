@@ -36,6 +36,7 @@ model Company {
   links     StoreWarehouseLink[]
 
   categories        Category[]
+  billFields        BillFieldConfig[]
   unitsOfMeasure    UnitOfMeasure[]
   taxes             Tax[]
   customers         Customer[]
@@ -403,6 +404,33 @@ model ReasonCode {
   @@unique([companyId, usage, code])
   @@index([companyId, usage])
   @@map("reason_codes")
+}
+
+/// Which customer details this company asks for at the till, and where each
+/// answer belongs. No rows means the pre-configuration behaviour: an optional
+/// customer name and nothing else.
+model BillFieldConfig {
+  id        String  @id @default(cuid())
+  companyId String
+
+  /// The `Customer` column this field drives, named exactly. Null for a field
+  /// the company invented.
+  builtin   String?
+  /// Stable. Invoices store answers against it, so it is never re-keyed.
+  key       String
+  label     String
+  /// 'customer' outlives the sale; 'sale' describes one bill.
+  scope     String
+  type      String  @default("text")
+  required  Boolean @default(false)
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+  @@index([companyId, active])
+  @@map("bill_field_configs")
 }
 
 // ---------------------------------------------------------------------------
@@ -774,6 +802,9 @@ model Invoice {
   counterId    String
   customerId   String?
   customerName String?
+  /// Sale-scope bill-field answers, keyed by BillFieldConfig.key. Snapshotted
+  /// so renaming or deactivating a field cannot change a bill already issued.
+  customerDetails Json?
   businessDate String
   status       InvoiceStatus
 
