@@ -59,6 +59,8 @@ export const invoiceSchema = z.object({
   counterId: idSchema,
   customerId: idSchema.optional(),
   customerName: z.string().optional(),
+  /** Sale-scope bill-field answers, keyed by BillFieldConfig.key. */
+  customerDetails: z.record(z.string()).optional(),
   businessDate: businessDateSchema,
   status: invoiceStatusSchema,
   lines: z.array(saleLineSchema),

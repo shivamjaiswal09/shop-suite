@@ -583,6 +583,82 @@ describe('onboarding edits', () => {
   });
 });
 
+describe('bill field configuration', () => {
+  it('starts empty, so billing is unchanged until someone configures it', async () => {
+    const { repos } = await setup();
+    expect(await repos.masters.billFields()).toHaveLength(0);
+  });
+
+  it('keeps sale-scope answers on the invoice', async () => {
+    const { repos, store, sku, counterId, actor } = await setup();
+    await repos.masters.createBillField({
+      key: 'vehicle_number',
+      label: 'Vehicle number',
+      scope: 'sale',
+    });
+
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      customerDetails: { vehicle_number: 'KA01AB1234' },
+      createdBy: actor,
+    });
+
+    expect(invoice.customerDetails).toEqual({ vehicle_number: 'KA01AB1234' });
+    // And it survives a re-read, rather than only existing on the response.
+    expect((await repos.invoices.byId(invoice.id))?.customerDetails).toEqual({
+      vehicle_number: 'KA01AB1234',
+    });
+  });
+
+  it('keeps a bill readable after its field is renamed or deactivated', async () => {
+    // The invoice stores the answer against the key, so the configuration can
+    // change afterwards without rewriting history.
+    const { repos, store, sku, counterId, actor } = await setup();
+    const field = await repos.masters.createBillField({
+      key: 'vehicle_number',
+      label: 'Vehicle number',
+      scope: 'sale',
+    });
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      customerDetails: { vehicle_number: 'KA01AB1234' },
+      createdBy: actor,
+    });
+
+    await repos.masters.updateBillField(field.id, { label: 'Reg. no.', active: false }, actor);
+
+    expect((await repos.invoices.byId(invoice.id))?.customerDetails).toEqual({
+      vehicle_number: 'KA01AB1234',
+    });
+  });
+
+  it('refuses a duplicate key', async () => {
+    const { repos } = await setup();
+    await repos.masters.createBillField({ key: 'vehicle_number', label: 'Vehicle', scope: 'sale' });
+    await expect(
+      repos.masters.createBillField({ key: 'vehicle_number', label: 'Other', scope: 'sale' }),
+    ).rejects.toThrow(/already exists/i);
+  });
+
+  it('finds a returning customer by phone instead of duplicating them', async () => {
+    const { repos, actor } = await setup();
+    const made = await repos.masters.createCustomer({
+      name: 'Ravi',
+      phone: '9845011111',
+      createdBy: actor,
+    });
+
+    expect((await repos.masters.customerByPhone('9845011111'))?.id).toBe(made.id);
+    expect(await repos.masters.customerByPhone('9999999999')).toBeUndefined();
+    // An empty needle must not match the customers who have no phone at all.
+    expect(await repos.masters.customerByPhone('  ')).toBeUndefined();
+  });
+});
+
 describe('cancelling and deleting an invoice', () => {
   const billed = async () => {
     const base = await setup();

@@ -1,5 +1,6 @@
 import type {
   AuditLog,
+  BillFieldConfig,
   Category,
   StockLocation,
   StoreWarehouseLink,
@@ -60,10 +61,33 @@ export interface NewInvoice {
   counterId: string;
   customerId?: string;
   customerName?: string;
+  /** Customer-scope answers, keyed by BillFieldConfig.key. */
+  customerFields?: Record<string, string>;
+  /** Sale-scope answers, keyed by BillFieldConfig.key. */
+  customerDetails?: Record<string, string>;
   lines: SaleLineInput[];
   createdBy: string;
   /** Set when the invoice is produced from a confirmed order. */
   orderId?: string;
+}
+
+export interface NewBillField {
+  builtin?: BillFieldConfig['builtin'];
+  key: string;
+  label: string;
+  scope: BillFieldConfig['scope'];
+  type?: BillFieldConfig['type'];
+  required?: boolean;
+  sortOrder?: number;
+}
+
+export interface BillFieldPatch {
+  label?: string;
+  scope?: BillFieldConfig['scope'];
+  type?: BillFieldConfig['type'];
+  required?: boolean;
+  sortOrder?: number;
+  active?: boolean;
 }
 
 export interface NewMovement {
@@ -529,6 +553,9 @@ export interface MasterRepository {
   suppliers(includeInactive?: boolean): Promise<Supplier[]>;
   paymentMethods(includeInactive?: boolean): Promise<PaymentMethod[]>;
   reasonCodes(usage?: ReasonCode['usage'], includeInactive?: boolean): Promise<ReasonCode[]>;
+  billFields(includeInactive?: boolean): Promise<BillFieldConfig[]>;
+  /** Phone is unique per company, so this is how a counter finds a walk-in. */
+  customerByPhone(phone: string): Promise<Customer | undefined>;
   createCategory(input: NewCategory): Promise<Category>;
   createUnitOfMeasure(input: NewUnitOfMeasure): Promise<UnitOfMeasure>;
   createTax(input: NewTax): Promise<Tax>;
@@ -536,6 +563,7 @@ export interface MasterRepository {
   createSupplier(input: NewSupplier): Promise<Supplier>;
   createPaymentMethod(input: NewPaymentMethod): Promise<PaymentMethod>;
   createReasonCode(input: NewReasonCode): Promise<ReasonCode>;
+  createBillField(input: NewBillField): Promise<BillFieldConfig>;
   updateCategory(id: string, patch: CategoryPatch, actorId: string): Promise<Category>;
   updateUnitOfMeasure(id: string, patch: UnitOfMeasurePatch, actorId: string): Promise<UnitOfMeasure>;
   updateTax(id: string, patch: TaxPatch, actorId: string): Promise<Tax>;
@@ -543,6 +571,7 @@ export interface MasterRepository {
   updateSupplier(id: string, patch: SupplierPatch, actorId: string): Promise<Supplier>;
   updatePaymentMethod(id: string, patch: PaymentMethodPatch, actorId: string): Promise<PaymentMethod>;
   updateReasonCode(id: string, patch: ReasonCodePatch, actorId: string): Promise<ReasonCode>;
+  updateBillField(id: string, patch: BillFieldPatch, actorId: string): Promise<BillFieldConfig>;
 }
 
 export interface ProductRepository {

@@ -513,6 +513,8 @@ export function createSalesRepositories(fetcher: Fetcher): SalesRepositories {
             counterId: input.counterId,
             customerId: input.customerId,
             customerName: input.customerName,
+            customerFields: input.customerFields,
+            customerDetails: input.customerDetails,
             orderId: input.orderId,
             lines: input.lines,
           }),

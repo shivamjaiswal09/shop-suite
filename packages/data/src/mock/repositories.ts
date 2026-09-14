@@ -1,4 +1,5 @@
 import {
+  type BillFieldConfig,
   calcClosing,
   calcTotals,
   deriveInventoryLevel,
@@ -501,6 +502,59 @@ export class MockRepositories implements Repositories {
       this.store.paymentMethods.push(method);
       this.logCreate('payment_method', method.id, `Payment method ${method.name} created`, input.createdBy);
       return tick(method);
+    },
+
+    billFields: (includeInactive) =>
+      tick(
+        this.store.billFields
+          .filter((f) => includeInactive || f.active)
+          .slice()
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label)),
+      ),
+
+    customerByPhone: (phone) => {
+      // An empty needle must not match the customers who have no phone.
+      const needle = phone.trim();
+      return tick(
+        needle ? this.store.customers.find((c) => c.active && c.phone === needle) : undefined,
+      );
+    },
+
+    createBillField: async (input) => {
+      const key = input.key.trim();
+      if (this.store.billFields.some((f) => f.key.toLowerCase() === key.toLowerCase())) {
+        throw new Error(`A bill field with the key ${key} already exists`);
+      }
+      const field: BillFieldConfig = {
+        id: this.store.nextId('bfl'),
+        companyId: this.store.company.id,
+        builtin: input.builtin ?? null,
+        key,
+        label: input.label.trim(),
+        scope: input.scope,
+        type: input.type ?? 'text',
+        required: input.required ?? false,
+        sortOrder: input.sortOrder ?? this.store.billFields.length * 10,
+        active: true,
+      };
+      this.store.billFields.push(field);
+      return tick(field);
+    },
+
+    updateBillField: async (id, patch, actorId) => {
+      const field = this.store.billFields.find((f) => f.id === id);
+      if (!field) throw new NotFoundError('BillFieldConfig', id);
+      // `key` is absent from the patch type on purpose: invoices already store
+      // answers against it.
+      Object.assign(field, patch, patch.label ? { label: patch.label.trim() } : {});
+      this.store.bumpAudit({
+        entity: 'bill_field',
+        entityId: id,
+        action: 'update',
+        summary: `Bill field ${field.label} updated`,
+        actorId,
+      });
+      return tick(field);
     },
 
     createReasonCode: async (input) => {
@@ -1066,6 +1120,7 @@ export class MockRepositories implements Repositories {
         counterId: input.counterId,
         customerId: input.customerId,
         customerName: input.customerName,
+        customerDetails: input.customerDetails,
         lines,
         totals: calcTotals(lines),
         createdBy: input.createdBy,
@@ -1796,6 +1851,7 @@ export class MockRepositories implements Repositories {
     counterId: string;
     customerId?: string;
     customerName?: string;
+    customerDetails?: Record<string, string>;
     lines: SaleLine[];
     totals: Invoice['totals'];
     createdBy: string;
@@ -1806,6 +1862,7 @@ export class MockRepositories implements Repositories {
       id: this.store.nextId('inv'),
       number: this.store.nextNumber('INV', this.locationCode(args.storeId)),
       orderId: args.orderId,
+      customerDetails: args.customerDetails,
       storeId: args.storeId,
       counterId: args.counterId,
       customerId: args.customerId,

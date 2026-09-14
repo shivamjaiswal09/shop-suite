@@ -1,4 +1,5 @@
 import type {
+  BillFieldConfig,
   Category,
   Customer,
   PaymentMethod,
@@ -124,6 +125,21 @@ export function createCatalogueRepositories(fetcher: Fetcher): {
     createPaymentMethod: (input) =>
       fetcher.post<PaymentMethod>('/payment-methods', body(input)),
     createReasonCode: (input) => fetcher.post<ReasonCode>('/reason-codes', body(input)),
+
+    billFields: (includeInactive) =>
+      fetcher.get<BillFieldConfig[]>('/bill-fields', { includeInactive }),
+
+    customerByPhone: (phone) => {
+      // An empty needle would request `/customers/by-phone/`, a different route
+      // entirely; refuse it here rather than relying on that returning a 404.
+      const needle = phone.trim();
+      if (!needle) return Promise.resolve(undefined);
+      return orUndefined(fetcher.get<Customer>(`/customers/by-phone/${encodeURIComponent(needle)}`));
+    },
+
+    createBillField: (input) => fetcher.post<BillFieldConfig>('/bill-fields', input),
+
+    updateBillField: (id, patch) => fetcher.patch<BillFieldConfig>(`/bill-fields/${id}`, patch),
 
     updateCategory: (id, patch) => fetcher.patch<Category>(`/categories/${id}`, patch),
     updateUnitOfMeasure: (id, patch) =>

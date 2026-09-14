@@ -148,6 +148,7 @@ const invoiceWire = (row: TotalsRow & { lines: LineRow[] } & Record<string, unkn
   counterId: row.counterId,
   customerId: row.customerId,
   customerName: row.customerName,
+  customerDetails: (row.customerDetails as Record<string, string> | null) ?? undefined,
   businessDate: row.businessDate,
   status: row.status,
   lines: row.lines.map(lineWire),
@@ -384,6 +385,8 @@ async function writeInvoice(
     counterId: string;
     customerId?: string | null;
     customerName?: string | null;
+    /** Sale-scope bill-field answers, keyed by BillFieldConfig.key. */
+    customerDetails?: Record<string, string>;
     lines: SaleLine[];
     totals: SaleTotals;
     orderId?: string | null;
@@ -399,6 +402,7 @@ async function writeInvoice(
       counterId: args.counterId,
       customerId: args.customerId ?? null,
       customerName: args.customerName ?? null,
+      customerDetails: args.customerDetails,
       businessDate: businessDateOf(at),
       status: 'unpaid',
       ...args.totals,
@@ -767,6 +771,10 @@ export async function registerSalesRoutes(app: FastifyInstance) {
         counterId: z.string().min(1),
         customerId: z.string().optional(),
         customerName: z.string().optional(),
+        /** Sale-scope answers: stored on the bill. */
+        customerDetails: z.record(z.string()).optional(),
+        /** Customer-scope answers: identify the person, stored on them. */
+        customerFields: z.record(z.string()).optional(),
         orderId: z.string().optional(),
         lines: z.array(saleLineInput),
       })
@@ -796,6 +804,7 @@ export async function registerSalesRoutes(app: FastifyInstance) {
           counterId: body.counterId,
           customerId: body.customerId,
           customerName: body.customerName ?? customer?.name,
+          customerDetails: body.customerDetails,
           lines,
           totals: calcTotals(lines),
           orderId: body.orderId,
