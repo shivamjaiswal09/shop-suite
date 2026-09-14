@@ -49,3 +49,22 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+@layer base {
+  /*
+   * Marks required fields from the input's own `required` attribute rather than
+   * from anything written beside the label. The two can then never disagree:
+   * making a field optional removes its asterisk in the same edit, and no form
+   * can be added that forgets to mark one.
+   *
+   * Purely decorative — assistive technology already announces the field as
+   * required from the attribute itself, so putting the asterisk in the DOM
+   * would say it twice.
+   */
+  label:has(+ input:required)::after,
+  label:has(+ select:required)::after,
+  label:has(+ textarea:required)::after {
+    content: ' *';
+    color: var(--destructive);
+  }
+}
