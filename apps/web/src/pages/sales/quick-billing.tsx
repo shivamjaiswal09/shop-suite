@@ -1,10 +1,13 @@
 import type { Invoice, Sku } from '@shop/core';
+import { missingRequiredFields, splitBillFields } from '@shop/core';
 import {
   useCartPricing,
   useCartIsForeign,
   useCartStore,
+  useBillFields,
   useCheckout,
   useCreateOrder,
+  useCustomerByPhone,
   usePaymentMethods,
   useSessionStore,
   useStockOverview,
@@ -12,7 +15,8 @@ import {
   type Tender,
 } from '@shop/state';
 import { Minus, Plus, Receipt, Trash2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { CustomerStep } from './customer-step';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,6 +51,34 @@ export function QuickBillingPage() {
   const inCart = useMemo(() => new Set(cart.lines.map((l) => l.sku.id)), [cart.lines]);
 
   const addSku = (sku: Sku) => cart.addSku(sku, 1, store?.id);
+
+  /* ------------------------------------------------------------ the wizard */
+
+  const billFields = useBillFields();
+  const [step, setStep] = useState<'cart' | 'customer' | 'payment'>('cart');
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [showMissing, setShowMissing] = useState(false);
+
+  const activeFields = useMemo(() => billFields.data ?? [], [billFields.data]);
+  const missing = missingRequiredFields(activeFields, fieldValues);
+  const missingKeys = new Set(showMissing ? missing.map((f) => f.key) : []);
+
+  // Recognising a returning customer is the point of a customer-scope field:
+  // the counter types a phone it has seen before and the rest fills itself.
+  const known = useCustomerByPhone(fieldValues.phone);
+  useEffect(() => {
+    const found = known.data;
+    if (!found) return;
+    // Fills blanks only. A cashier correcting a stale name must not have the
+    // stored one typed back over them on the next render.
+    setFieldValues((prev) => ({
+      ...prev,
+      name: prev.name || found.name,
+      email: prev.email || found.email || '',
+      gstin: prev.gstin || found.gstin || '',
+      addressLine: prev.addressLine || found.addressLine || '',
+    }));
+  }, [known.data]);
 
   /**
    * One row set behind both cart renderings. A phone gets stacked cards and a
@@ -89,11 +121,16 @@ export function QuickBillingPage() {
     // Last line of defence: these lines were priced against another store's
     // shelf, so billing them here would take the wrong stock and the wrong money.
     if (cartIsForeign) return;
+    const split = splitBillFields(activeFields, fieldValues);
     const result = await checkout.mutateAsync({
       storeId: store.id,
       counterId,
       customerId: cart.customerId,
-      customerName: cart.customerName,
+      // The configured name wins; the cart's own stays as the fallback for a
+      // company that has configured nothing, which is the old behaviour.
+      customerName: split.customer.name ?? cart.customerName,
+      customerFields: split.customer,
+      customerDetails: split.sale,
       lines: saleLines(),
       tenders: tenders.filter((t) => t.amount > 0),
       createdBy: user.id,
@@ -101,6 +138,9 @@ export function QuickBillingPage() {
     setLastInvoice(result.invoice);
     cart.clear();
     setTenders([]);
+    setFieldValues({});
+    setShowMissing(false);
+    setStep('cart');
   };
 
   const onReserve = async () => {
@@ -131,6 +171,8 @@ export function QuickBillingPage() {
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
+          {step === 'cart' ? (
+          <>
           <ProductPicker
             storeId={store?.id}
             storeName={store?.name ?? '—'}
@@ -315,6 +357,52 @@ export function QuickBillingPage() {
             </Table>
             </div>
           </Card>
+          </>
+          ) : null}
+
+          {step === 'cart' ? (
+            <Button
+              className="w-full"
+              disabled={cart.lines.length === 0}
+              onClick={() => setStep('customer')}
+            >
+              Continue to customer
+            </Button>
+          ) : null}
+
+          {step === 'customer' ? (
+            <Card>
+              <CardHeader title="Customer" description="Recorded against this bill." />
+              <CardBody className="space-y-4">
+                <CustomerStep
+                  fields={activeFields}
+                  values={fieldValues}
+                  missingKeys={missingKeys}
+                  onChange={(key, value) =>
+                    setFieldValues((prev) => ({ ...prev, [key]: value }))
+                  }
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => setStep('cart')}>
+                    Back to cart
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      // Revealed only on an attempt, so the form does not open
+                      // covered in errors for fields nobody has had a chance to
+                      // fill in yet.
+                      setShowMissing(true);
+                      if (missingRequiredFields(activeFields, fieldValues).length === 0) {
+                        setStep('payment');
+                      }
+                    }}
+                  >
+                    Continue to payment
+                  </Button>
+                </div>
+              </CardBody>
+            </Card>
+          ) : null}
         </div>
 
         <div className="space-y-5">
@@ -373,6 +461,7 @@ export function QuickBillingPage() {
             </CardBody>
           </Card>
 
+          {step === 'payment' ? (
           <Card>
             <CardHeader title="Payment" description="Split across tenders if needed." />
             <CardBody className="space-y-3">
@@ -477,6 +566,10 @@ export function QuickBillingPage() {
                 <p className="text-xs text-destructive">{(createOrder.error as Error).message}</p>
               ) : null}
 
+              <Button variant="outline" className="w-full" onClick={() => setStep('customer')}>
+                Back to customer
+              </Button>
+
               <p className="text-[11px] text-muted-foreground">
                 Billing appends one <code>sale</code> movement per line — stock is never written
                 directly. With no tender the invoice is parked unpaid and can be settled later from
@@ -484,6 +577,7 @@ export function QuickBillingPage() {
               </p>
             </CardBody>
           </Card>
+          ) : null}
 
           {lastInvoice ? (
             <Card>

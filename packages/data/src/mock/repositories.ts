@@ -1115,11 +1115,12 @@ export class MockRepositories implements Repositories {
       if (input.lines.length === 0) throw new Error('Cannot bill an empty cart');
       const lines = this.priceLines(input.lines);
       this.assertAvailable(lines, input.storeId);
+      const customerId = this.resolveCustomer(input.customerId, input.customerFields);
       const invoice = this.writeInvoice({
         storeId: input.storeId,
         counterId: input.counterId,
-        customerId: input.customerId,
-        customerName: input.customerName,
+        customerId,
+        customerName: input.customerFields?.name ?? input.customerName,
         customerDetails: input.customerDetails,
         lines,
         totals: calcTotals(lines),
@@ -1844,6 +1845,44 @@ export class MockRepositories implements Repositories {
         createdAt: at,
       }),
     );
+  }
+
+  /**
+   * Customer-scope answers identify a person, so they belong on the customer
+   * rather than on the bill. Mirrors the API: a phone with no name creates
+   * nothing, because `Customer.name` is required and a cashier forced past that
+   * types the phone number into the name field.
+   */
+  private resolveCustomer(
+    customerId: string | undefined,
+    fields: Record<string, string> | undefined,
+  ): string | undefined {
+    if (customerId || !fields?.phone) return customerId;
+
+    const existing = this.store.customers.find((c) => c.phone === fields.phone);
+    if (existing) {
+      // Only what was entered: a blank field on this bill must not erase a
+      // detail captured on an earlier one.
+      for (const key of ['name', 'email', 'gstin', 'addressLine'] as const) {
+        if (fields[key]) Object.assign(existing, { [key]: fields[key] });
+      }
+      return existing.id;
+    }
+    if (!fields.name) return undefined;
+
+    const made = customerSchema.parse({
+      id: this.store.nextId('cus'),
+      companyId: this.store.company.id,
+      name: fields.name,
+      phone: fields.phone,
+      email: fields.email,
+      gstin: fields.gstin,
+      addressLine: fields.addressLine,
+      creditLimit: 0,
+      active: true,
+    });
+    this.store.customers.push(made);
+    return made.id;
   }
 
   private writeInvoice(args: {

@@ -29,11 +29,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
 import { Table, Td, Th } from '@/components/ui/table';
+import { BillFieldsCard } from './bill-fields-card';
 import { activeField, EditDialog, type EditTarget } from './edit-dialog';
 import { RecordForm, type FormValues } from './record-form';
 import { money } from '@/lib/utils';
 
-const TABS = ['Categories', 'Units', 'Taxes', 'Payment methods', 'Reason codes', 'Customers', 'Suppliers'] as const;
+const TABS = ['Categories', 'Units', 'Taxes', 'Payment methods', 'Reason codes', 'Bill fields', 'Customers', 'Suppliers'] as const;
 type Tab = (typeof TABS)[number];
 
 /** Every shared master, each with the form that creates it. */
@@ -60,6 +61,7 @@ export function OnboardMastersPage() {
       {tab === 'Taxes' ? <TaxesCard /> : null}
       {tab === 'Payment methods' ? <PaymentMethodsCard /> : null}
       {tab === 'Reason codes' ? <ReasonCodesCard /> : null}
+      {tab === 'Bill fields' ? <BillFieldsCard /> : null}
       {tab === 'Customers' ? <CustomersCard /> : null}
       {tab === 'Suppliers' ? <SuppliersCard /> : null}
     </>

@@ -644,6 +644,60 @@ describe('bill field configuration', () => {
     ).rejects.toThrow(/already exists/i);
   });
 
+  it('keeps customer-scope answers on the customer, and links the bill to them', async () => {
+    const { repos, store, sku, counterId, actor } = await setup();
+    const before = (await repos.masters.customers()).length;
+
+    const first = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      customerFields: { name: 'Ravi Kumar', phone: '9845099999' },
+      customerDetails: { vehicle_number: 'KA01AB1234' },
+      createdBy: actor,
+    });
+
+    const made = await repos.masters.customerByPhone('9845099999');
+    expect(made?.name).toBe('Ravi Kumar');
+    expect(first.customerId).toBe(made?.id);
+    expect((await repos.masters.customers()).length).toBe(before + 1);
+
+    // A second sale to the same phone reuses the record rather than adding one.
+    const second = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      customerFields: { name: 'Ravi Kumar', phone: '9845099999' },
+      customerDetails: { vehicle_number: 'KA02CD5678' },
+      createdBy: actor,
+    });
+    expect(second.customerId).toBe(made?.id);
+    expect((await repos.masters.customers()).length).toBe(before + 1);
+    // The vehicle belongs to the sale, so the two bills differ.
+    expect(second.customerDetails).toEqual({ vehicle_number: 'KA02CD5678' });
+    expect((await repos.invoices.byId(first.id))?.customerDetails).toEqual({
+      vehicle_number: 'KA01AB1234',
+    });
+  });
+
+  it('does not invent a customer from a phone with no name', async () => {
+    // `Customer.name` is required, and a cashier forced past that types the
+    // phone number into the name field.
+    const { repos, store, sku, counterId, actor } = await setup();
+    const before = (await repos.masters.customers()).length;
+
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      customerFields: { phone: '9845077777' },
+      createdBy: actor,
+    });
+
+    expect(invoice.customerId).toBeUndefined();
+    expect((await repos.masters.customers()).length).toBe(before);
+  });
+
   it('finds a returning customer by phone instead of duplicating them', async () => {
     const { repos, actor } = await setup();
     const made = await repos.masters.createCustomer({
