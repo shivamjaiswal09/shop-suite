@@ -11,3 +11,4 @@ export * from './purchase.ts';
 export * from './closing.ts';
 export * from './audit.ts';
 export * from './discrepancy.ts';
+export * from './bill-field.ts';

@@ -5,3 +5,4 @@ export * from './returns.ts';
 export * from './replenishment.ts';
 export * from './reconciliation.ts';
 export * from './session.ts';
+export * from './bill-fields.ts';
