@@ -533,6 +533,15 @@ export function createSalesRepositories(fetcher: Fetcher): SalesRepositories {
         const row = await orUndefined(fetcher.get<WireInvoice>(`/invoices/${id}`));
         return row && toInvoice(row);
       },
+
+      cancel: async (id, note) =>
+        toInvoice(await fetcher.post<WireInvoice>(`/invoices/${id}/cancel`, { note })),
+
+      // Through `request` rather than `del`, because the confirmation travels
+      // in the body — an invoice number in the URL would end up in access logs.
+      remove: async (id, confirmNumber) => {
+        await fetcher.request<{ deleted: true }>('DELETE', `/invoices/${id}`, { confirmNumber });
+      },
     },
 
     payments: {

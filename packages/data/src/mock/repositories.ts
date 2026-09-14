@@ -1089,7 +1089,95 @@ export class MockRepositories implements Repositories {
     },
 
     byId: (id) => tick(this.store.invoices.find((i) => i.id === id)),
+
+    cancel: async (id, note) => {
+      const invoice = this.invoiceForAdminAction(id);
+      if (invoice.status === 'cancelled') {
+        throw new Error(`Invoice ${invoice.number} is already cancelled`);
+      }
+
+      // Reversing entries, never edits — the ledger only ever grows.
+      this.postMovements(
+        invoice.lines.map((line) => ({
+          skuId: line.skuId,
+          locationId: invoice.storeId,
+          type: 'sale_return' as const,
+          qty: line.qty,
+          refType: 'invoice' as const,
+          refId: invoice.id,
+          createdBy: invoice.createdBy,
+        })),
+      );
+
+      for (const payment of this.store.payments.filter(
+        (p) => p.invoiceId === invoice.id && p.status === 'success',
+      )) {
+        this.store.payments.push({
+          ...payment,
+          id: this.store.nextId('pay'),
+          amount: roundMoney(-payment.amount),
+          reference: `cancel:${invoice.number}`,
+          idempotencyKey: `cancel:${payment.id}`,
+        });
+      }
+
+      invoice.status = 'cancelled';
+      invoice.amountPaid = 0;
+      invoice.amountDue = 0;
+      this.store.bumpAudit({
+        entity: 'invoice',
+        entityId: invoice.id,
+        action: 'cancel',
+        summary: `Invoice ${invoice.number} cancelled${note ? ` — ${note}` : ''}`,
+        actorId: invoice.createdBy,
+      });
+      return tick(invoice);
+    },
+
+    remove: async (id, confirmNumber) => {
+      const invoice = this.invoiceForAdminAction(id);
+      if (confirmNumber.trim() !== invoice.number) {
+        throw new Error(`Type ${invoice.number} exactly to confirm`);
+      }
+      // Written before the rows go, since it becomes the only trace.
+      this.store.bumpAudit({
+        entity: 'invoice',
+        entityId: invoice.id,
+        action: 'delete',
+        summary: `Invoice ${invoice.number} deleted`,
+        actorId: invoice.createdBy,
+      });
+
+      // Movements reference the invoice by id rather than by a relation, so
+      // nothing removes them on our behalf; left behind they would hold stock
+      // down for goods the books no longer say were sold.
+      this.store.movements = this.store.movements.filter(
+        (m) => !(m.refType === 'invoice' && m.refId === invoice.id),
+      );
+      this.store.payments = this.store.payments.filter((p) => p.invoiceId !== invoice.id);
+      this.store.invoices = this.store.invoices.filter((i) => i.id !== invoice.id);
+      return tick(undefined);
+    },
   };
+
+  /**
+   * Shared guard: a returned invoice cannot be cancelled or deleted, because
+   * the return has already put some goods back and refunded some money.
+   * Reversing the whole invoice on top would do both a second time.
+   */
+  private invoiceForAdminAction(id: string) {
+    const invoice = this.store.invoices.find((i) => i.id === id);
+    if (!invoice) throw new NotFoundError('Invoice', id);
+    const returns = this.store.salesReturns.filter((r) => r.invoiceId === id);
+    if (returns.length > 0) {
+      throw new Error(
+        `Invoice ${invoice.number} has a return against it (${returns
+          .map((r) => r.number)
+          .join(', ')}). Reverse the return first.`,
+      );
+    }
+    return invoice;
+  }
 
   /* ------------------------------------------------------------- payments */
   payments = {

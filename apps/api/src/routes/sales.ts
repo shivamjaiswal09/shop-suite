@@ -862,6 +862,176 @@ export async function registerSalesRoutes(app: FastifyInstance) {
     return invoiceWire(row);
   });
 
+  /* ------------------------------------------------- cancelling and deleting */
+
+  /**
+   * Loads an invoice for an administrative action and refuses the cases that
+   * cannot be safely undone.
+   *
+   * A return is the blocker that matters. It has already put some of the goods
+   * back and refunded some of the money, so reversing the whole invoice on top
+   * would credit the customer twice and the stock ledger would count the same
+   * units returning twice over.
+   */
+  async function invoiceForAdminAction(id: string, companyId: string) {
+    const invoice = await prisma.invoice.findFirst({
+      where: { id, companyId },
+      include: { lines: { orderBy: { id: 'asc' } }, returns: { select: { number: true } } },
+    });
+    if (!invoice) throw new HttpError(404, `Invoice not found: ${id}`);
+    if (invoice.returns.length > 0) {
+      throw new HttpError(
+        409,
+        `Invoice ${invoice.number} has a return against it (${invoice.returns
+          .map((r) => r.number)
+          .join(', ')}). Reverse the return first.`,
+      );
+    }
+    return invoice;
+  }
+
+  /**
+   * Voids an invoice without erasing it.
+   *
+   * The everyday correction: the goods go back on the shelf, the money comes
+   * back out of the day's takings, and the document stays in the books marked
+   * cancelled. A tax invoice is meant to be retained and voided rather than
+   * removed, and keeping the row is also what stops its number being handed to
+   * the next sale.
+   */
+  app.post('/invoices/:id/cancel', async (request) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const body = z
+      .object({
+        companyId: z.string().optional(),
+        reasonCodeId: z.string().optional(),
+        note: z.string().max(500).optional(),
+      })
+      .parse(request.body ?? {});
+
+    const { caller, companyId } = requireCompany(await principal(request), body.companyId);
+    requirePermission(caller, 'admin.manage');
+
+    const invoice = await invoiceForAdminAction(id, companyId);
+    if (invoice.status === 'cancelled') {
+      throw new HttpError(409, `Invoice ${invoice.number} is already cancelled`);
+    }
+
+    const at = new Date();
+    return invoiceWire(
+      await prisma.$transaction(async (tx) => {
+        // Reversing entries rather than edits: stock is an append-only ledger,
+        // so putting the goods back is another movement, not the removal of the
+        // one that took them.
+        await tx.stockMovement.createMany({
+          data: invoice.lines.map((line) => ({
+            companyId,
+            skuId: line.skuId,
+            locationId: invoice.storeId,
+            type: 'sale_return' as const,
+            qty: signedQty('sale_return', n(line.qty)),
+            refType: 'invoice' as const,
+            refId: invoice.id,
+            createdBy: caller.userId,
+            createdAt: at,
+          })),
+        });
+
+        // Same shape a refund uses: a negative payment, so day-end nets out on
+        // its own rather than needing a second opposite-signed concept.
+        const taken = await tx.payment.findMany({
+          where: { invoiceId: invoice.id, status: 'success' },
+        });
+        for (const payment of taken) {
+          await tx.payment.create({
+            data: {
+              companyId,
+              invoiceId: invoice.id,
+              storeId: invoice.storeId,
+              counterId: invoice.counterId,
+              businessDate: businessDateOf(at),
+              paymentMethodId: payment.paymentMethodId,
+              amount: roundMoney(-n(payment.amount)),
+              reference: `cancel:${invoice.number}`,
+              status: 'success',
+              idempotencyKey: `cancel:${payment.id}`,
+              createdBy: caller.userId,
+              createdAt: at,
+            },
+          });
+        }
+
+        const cancelled = await tx.invoice.update({
+          where: { id: invoice.id },
+          data: { status: 'cancelled', amountPaid: 0, amountDue: 0 },
+          include: { lines: { orderBy: { id: 'asc' } } },
+        });
+
+        await auditIn(tx, {
+          companyId,
+          actorId: caller.userId,
+          entity: 'invoice',
+          entityId: invoice.id,
+          action: 'cancel',
+          summary:
+            `Invoice ${invoice.number} cancelled (₹${n(invoice.grandTotal)} reversed)` +
+            (body.note ? ` — ${body.note}` : ''),
+        });
+
+        return cancelled;
+      }, TX),
+    );
+  });
+
+  /**
+   * Erases an invoice. For a bill that should never have existed at all.
+   *
+   * Cancelling is the right answer almost every time; this exists for the
+   * same-day mis-entry an owner does not want in their books. It is gated on
+   * retyping the invoice number because the consequences are not reversible and
+   * not obvious: the document cannot be reprinted for a customer afterwards,
+   * and the number returns to the pool, so the next sale will be issued with
+   * it.
+   *
+   * Stock movements carry `refType`/`refId` rather than a foreign key, so
+   * nothing deletes them on our behalf — left behind they would hold stock down
+   * for goods that, as far as the books are concerned, were never sold.
+   */
+  app.delete('/invoices/:id', async (request) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const body = z
+      .object({ companyId: z.string().optional(), confirmNumber: z.string().min(1) })
+      .parse(request.body ?? {});
+
+    const { caller, companyId } = requireCompany(await principal(request), body.companyId);
+    requirePermission(caller, 'admin.manage');
+
+    const invoice = await invoiceForAdminAction(id, companyId);
+    if (body.confirmNumber.trim() !== invoice.number) {
+      throw new HttpError(400, `Type ${invoice.number} exactly to confirm`);
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Written before the delete: the invoice is the thing being destroyed, so
+      // this row is the only record that it ever existed. AuditEntry keeps the
+      // id as plain text rather than a relation, so it survives.
+      await auditIn(tx, {
+        companyId,
+        actorId: caller.userId,
+        entity: 'invoice',
+        entityId: invoice.id,
+        action: 'delete',
+        summary: `Invoice ${invoice.number} deleted (₹${n(invoice.grandTotal)}, ${invoice.lines.length} line(s))`,
+      });
+
+      await tx.stockMovement.deleteMany({ where: { refType: 'invoice', refId: invoice.id } });
+      // Lines and payments are cascaded by their foreign keys.
+      await tx.invoice.delete({ where: { id: invoice.id } });
+    }, TX);
+
+    return { deleted: true, number: invoice.number };
+  });
+
   /* ------------------------------------------------------------- payments */
 
   app.post('/payments', async (request, reply) => {

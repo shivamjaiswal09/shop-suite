@@ -1,6 +1,9 @@
 import type { Invoice } from '@shop/core';
 import {
+  useCan,
+  useCancelInvoice,
   useCapturePayment,
+  useDeleteInvoice,
   useInvoicePayments,
   usePaymentMethods,
   useSessionStore,
@@ -29,18 +32,50 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
   const [reference, setReference] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  // Mirrors the permission the API enforces. Hiding these is courtesy, not
+  // security — the endpoints check `admin.manage` themselves.
+  const isAdmin = useCan('admin.manage');
+  const cancelInvoice = useCancelInvoice();
+  const deleteInvoice = useDeleteInvoice();
+  const [adminMode, setAdminMode] = useState<'none' | 'cancel' | 'delete'>('none');
+  const [note, setNote] = useState('');
+  const [confirmNumber, setConfirmNumber] = useState('');
+
   const due = invoice?.amountDue ?? 0;
 
   useEffect(() => {
     setAmount(due > 0 ? String(due) : '');
     setError(null);
+    // Reset per invoice, so a confirmation typed for one bill can never be
+    // still sitting in the field when another is opened.
+    setAdminMode('none');
+    setNote('');
+    setConfirmNumber('');
   }, [invoice?.id, due]);
 
   const close = () => {
     setReference('');
     setError(null);
+    setAdminMode('none');
     onClose();
   };
+
+  const runAdminAction = async () => {
+    if (!invoice) return;
+    setError(null);
+    try {
+      if (adminMode === 'cancel') {
+        await cancelInvoice.mutateAsync({ id: invoice.id, note: note.trim() || undefined });
+      } else {
+        await deleteInvoice.mutateAsync({ id: invoice.id, confirmNumber });
+      }
+      close();
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
+
+  const adminBusy = cancelInvoice.isPending || deleteInvoice.isPending;
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -208,6 +243,87 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
             Fully settled — nothing outstanding.
           </p>
         )}
+
+        {/* Administrative reversal. Cancelling is the ordinary correction and is
+            offered first; deleting sits behind a second step because it cannot
+            be undone and its consequences are not visible from here. */}
+        {isAdmin && invoice.status !== 'cancelled' ? (
+          <div className="rounded-md border border-border p-3">
+            {adminMode === 'none' ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Reverse this bill — stock returns to the shelf and the payments come back out of
+                  the day's takings.
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setAdminMode('cancel')}>
+                    Cancel invoice
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setAdminMode('delete')}>
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ) : adminMode === 'cancel' ? (
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Cancel {invoice.number}?</p>
+                <p className="text-xs text-muted-foreground">
+                  The {invoice.lines.length} line(s) go back into stock and {money(invoice.amountPaid)}{' '}
+                  is reversed out of the day's payments. The invoice stays in the books marked
+                  cancelled, keeping its number.
+                </p>
+                <div>
+                  <Label htmlFor="cancel-note">Reason (optional)</Label>
+                  <Input
+                    id="cancel-note"
+                    placeholder="Billed to the wrong customer"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="destructive" disabled={adminBusy} onClick={() => void runAdminAction()}>
+                    {adminBusy ? 'Cancelling…' : 'Cancel this invoice'}
+                  </Button>
+                  <Button variant="outline" disabled={adminBusy} onClick={() => setAdminMode('none')}>
+                    Keep it
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-destructive">Delete {invoice.number}?</p>
+                <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  This erases the invoice, its lines and its payments, and removes the stock
+                  movements it wrote. It cannot be reprinted for the customer afterwards, and{' '}
+                  <strong>{invoice.number} returns to the pool</strong> — the next sale will be
+                  issued with it. Cancelling keeps the record and is almost always the better
+                  choice.
+                </p>
+                <div>
+                  <Label htmlFor="confirm-number">Type {invoice.number} to confirm</Label>
+                  <Input
+                    id="confirm-number"
+                    value={confirmNumber}
+                    onChange={(e) => setConfirmNumber(e.target.value)}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="destructive"
+                    disabled={adminBusy || confirmNumber.trim() !== invoice.number}
+                    onClick={() => void runAdminAction()}
+                  >
+                    {adminBusy ? 'Deleting…' : 'Delete permanently'}
+                  </Button>
+                  <Button variant="outline" disabled={adminBusy} onClick={() => setAdminMode('none')}>
+                    Keep it
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     </Modal>
   );

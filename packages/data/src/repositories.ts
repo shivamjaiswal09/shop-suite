@@ -590,6 +590,17 @@ export interface InvoiceRepository {
   create(input: NewInvoice): Promise<Invoice>;
   list(filter?: InvoiceFilter): Promise<Invoice[]>;
   byId(id: string): Promise<Invoice | undefined>;
+  /**
+   * Voids it: stock back on the shelf, payments reversed, document retained
+   * as `cancelled`. Requires `admin.manage`.
+   */
+  cancel(id: string, note?: string): Promise<Invoice>;
+  /**
+   * Erases it. Requires `admin.manage`, and `confirmNumber` must equal the
+   * invoice's number — the number returns to the pool and the document cannot
+   * be reprinted afterwards.
+   */
+  remove(id: string, confirmNumber: string): Promise<void>;
 }
 
 export interface PaymentRepository {

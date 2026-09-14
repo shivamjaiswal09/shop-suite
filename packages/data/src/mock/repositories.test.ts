@@ -583,6 +583,86 @@ describe('onboarding edits', () => {
   });
 });
 
+describe('cancelling and deleting an invoice', () => {
+  const billed = async () => {
+    const base = await setup();
+    const before = await base.repos.stock.levelFor(base.sku.id, base.store.id);
+    const invoice = await base.repos.invoices.create({
+      storeId: base.store.id,
+      counterId: base.counterId,
+      lines: [{ skuId: base.sku.id, qty: 4 }],
+      createdBy: base.actor,
+    });
+    const cash = (await base.repos.masters.paymentMethods()).find((m) => m.code === 'CASH')!;
+    await base.repos.payments.capture({
+      invoiceId: invoice.id,
+      paymentMethodId: cash.id,
+      amount: invoice.totals.grandTotal,
+      idempotencyKey: `pay:${invoice.id}`,
+      createdBy: base.actor,
+    });
+    return { ...base, invoice, cash, onHandBefore: before.onHand };
+  };
+
+  it('returns the stock and reverses the payment, keeping the document', async () => {
+    const { repos, sku, store, invoice, onHandBefore } = await billed();
+
+    const cancelled = await repos.invoices.cancel(invoice.id, 'Billed to the wrong customer');
+
+    expect(cancelled.status).toBe('cancelled');
+    // The goods are back on the shelf, exactly where they started.
+    expect((await repos.stock.levelFor(sku.id, store.id)).onHand).toBe(onHandBefore);
+    // Cash nets to nothing rather than being erased, so day-end still balances.
+    const payments = await repos.payments.listByInvoice(invoice.id);
+    expect(payments.reduce((sum, p) => sum + p.amount, 0)).toBe(0);
+    // And the number is still taken, so no later sale can be issued with it.
+    expect((await repos.invoices.byId(invoice.id))?.number).toBe(invoice.number);
+  });
+
+  it('refuses to cancel the same invoice twice', async () => {
+    const { repos, invoice } = await billed();
+    await repos.invoices.cancel(invoice.id);
+    await expect(repos.invoices.cancel(invoice.id)).rejects.toThrow(/already cancelled/i);
+  });
+
+  it('refuses to touch an invoice that has a return against it', async () => {
+    // The return has already put goods back and refunded money; reversing the
+    // whole invoice on top would do both a second time.
+    const { repos, invoice, sku, actor } = await billed();
+    const reason = (await repos.masters.reasonCodes('return'))[0]!;
+    await repos.salesReturns.create({
+      invoiceId: invoice.id,
+      reasonCodeId: reason.id,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      createdBy: actor,
+    });
+
+    await expect(repos.invoices.cancel(invoice.id)).rejects.toThrow(/has a return against it/i);
+    await expect(repos.invoices.remove(invoice.id, invoice.number)).rejects.toThrow(
+      /has a return against it/i,
+    );
+  });
+
+  it('deletes only when the number is typed back exactly', async () => {
+    const { repos, invoice } = await billed();
+    await expect(repos.invoices.remove(invoice.id, 'not-the-number')).rejects.toThrow(/confirm/i);
+    expect(await repos.invoices.byId(invoice.id)).toBeDefined();
+  });
+
+  it('takes the stock movements with it when deleting', async () => {
+    // Movements reference the invoice by id rather than by a relation, so
+    // nothing removes them automatically. Left behind, they would hold stock
+    // down for goods the books no longer say were sold.
+    const { repos, invoice, sku, store, onHandBefore } = await billed();
+
+    await repos.invoices.remove(invoice.id, invoice.number);
+
+    expect(await repos.invoices.byId(invoice.id)).toBeUndefined();
+    expect((await repos.stock.levelFor(sku.id, store.id)).onHand).toBe(onHandBefore);
+    expect(await repos.payments.listByInvoice(invoice.id)).toHaveLength(0);
+  });
+});
+
 describe('sales returns', () => {
   const billed = async () => {
     const base = await setup();

@@ -119,6 +119,43 @@ export function useInvoices(filter: InvoiceFilter) {
   return useQuery({ queryKey: qk.invoices(filter), queryFn: () => repos.invoices.list(filter) });
 }
 
+/**
+ * Voiding and erasing an invoice. Both require `admin.manage`; the API enforces
+ * that independently, so a UI that offers them to the wrong role gets a 403
+ * rather than a mistake.
+ *
+ * Both invalidate the same set as billing does. A cancellation moves stock,
+ * cash and the audit log exactly as the sale did, only in the other direction.
+ */
+export function useCancelInvoice() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string }) => repos.invoices.cancel(id, note),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: qk.stock });
+      void queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      void queryClient.invalidateQueries({ queryKey: qk.closing });
+      void queryClient.invalidateQueries({ queryKey: qk.audit });
+    },
+  });
+}
+
+export function useDeleteInvoice() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, confirmNumber }: { id: string; confirmNumber: string }) =>
+      repos.invoices.remove(id, confirmNumber),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: qk.stock });
+      void queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      void queryClient.invalidateQueries({ queryKey: qk.closing });
+      void queryClient.invalidateQueries({ queryKey: qk.audit });
+    },
+  });
+}
+
 export function useInvoice(id: string | undefined) {
   const repos = useRepositories();
   return useQuery({
