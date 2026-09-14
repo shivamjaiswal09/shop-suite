@@ -1,4 +1,4 @@
-import { useIsSuperAdmin, useSessionStore } from '@shop/state';
+import { useIsSuperAdmin, useRestoreSession, useSessionStore } from '@shop/state';
 import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
 import { AppShell } from './components/app-shell';
@@ -35,6 +35,15 @@ export function App() {
   // location.
   const hasStore = useSessionStore((s) => s.store !== null);
 
+  /**
+   * Re-establish the session from the cookie before deciding what to render.
+   *
+   * The session store lives in memory, so a refresh empties it while the cookie
+   * outlives the page. Without this the app concluded nobody was signed in and
+   * sent them back to the login screen on every single reload.
+   */
+  const { settled } = useRestoreSession();
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
@@ -46,6 +55,27 @@ export function App() {
   // cashier needs the app before they have anything to sign in with, so gating
   // the download behind a session would be circular.
   const downloadRoute = <Route path="/download" element={<DownloadPage />} />;
+
+  // Until the cookie has been checked there is no honest answer to "is this
+  // person signed in", and guessing shows either a login screen to someone who
+  // is, or a flash of the app to someone who is not. The download page is
+  // exempt: it exists for people who cannot get in, so it must not wait on a
+  // call that may be what is failing.
+  if (!settled) {
+    return (
+      <Routes>
+        {downloadRoute}
+        <Route
+          path="*"
+          element={
+            <div className="flex min-h-screen items-center justify-center bg-background">
+              <p className="text-sm text-muted-foreground">Restoring your session…</p>
+            </div>
+          }
+        />
+      </Routes>
+    );
+  }
 
   if (isAuthenticated && isSuperAdmin) {
     return (
