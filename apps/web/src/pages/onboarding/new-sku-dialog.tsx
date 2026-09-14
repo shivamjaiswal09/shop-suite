@@ -99,7 +99,17 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
     const uomId = form.uomId || uoms.data?.[0]?.id;
     const taxId = form.taxId || suggestedTaxId;
     if (!uomId || !taxId) {
-      setError('Masters are still loading — try again in a moment.');
+      // A new company has no masters at all, so the honest failure here is
+      // "none exist" rather than "not yet arrived". Telling someone to wait for
+      // something that will never load is the worst of the two, and naming the
+      // master saves them opening Masters to find out which one is missing.
+      const loading = uoms.isPending || taxes.isPending;
+      const missing = [!uomId && 'a unit of measure', !taxId && 'a tax'].filter(Boolean).join(' and ');
+      setError(
+        loading
+          ? 'Masters are still loading — try again in a moment.'
+          : `Every SKU needs ${missing}. Add one under Onboarding → Masters first.`,
+      );
       return;
     }
 
