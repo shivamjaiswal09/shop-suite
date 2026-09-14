@@ -1,12 +1,13 @@
 import { useLogout, usePermissions, useSessionStore } from '@shop/state';
-import { LogOut, Moon, Smartphone, Store, Sun } from 'lucide-react';
-import { useMemo } from 'react';
+import { LogOut, Menu, Moon, Smartphone, Store, Sun } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { ErrorBoundary } from './error-boundary';
+import { MobileNav } from './mobile-nav';
+import { NavList } from './nav-list';
 import { StoreSwitcher } from './store-switcher';
 import { Button } from './ui/button';
 import { NAV } from './nav';
-import { cn } from '@/lib/utils';
 
 export function AppShell() {
   const { pathname } = useLocation();
@@ -15,6 +16,11 @@ export function AppShell() {
   const theme = useSessionStore((s) => s.theme);
   const toggleTheme = useSessionStore((s) => s.toggleTheme);
   const logout = useLogout();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // A route change must close the drawer even when it was not a tap inside it
+  // that caused one — a browser back gesture, or a redirect after an action.
+  useEffect(() => setMenuOpen(false), [pathname]);
 
   // `usePermissions` is empty while the role master loads, so a gated item stays
   // hidden until the answer is known rather than flashing in and disappearing.
@@ -26,6 +32,8 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen bg-background">
+      <MobileNav open={menuOpen} onClose={() => setMenuOpen(false)} items={visibleNav} />
+
       <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-card lg:flex">
         <div className="flex items-center gap-2 border-b border-border px-5 py-4">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
@@ -38,45 +46,7 @@ export function AppShell() {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-          {visibleNav.map((item) => {
-            const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
-            return (
-              <div key={item.to}>
-                <NavLink
-                  to={item.to}
-                  end={item.to === '/'}
-                  className={cn(
-                    'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
-                    active ? 'bg-primary/10 font-medium text-primary' : 'text-foreground hover:bg-muted',
-                  )}
-                >
-                  <item.icon className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                </NavLink>
-
-                {active && item.children ? (
-                  <div className="ml-6 mt-1 space-y-0.5 border-l border-border pl-3">
-                    {item.children.map((child) => (
-                      <NavLink
-                        key={child.to}
-                        to={child.to}
-                        className={({ isActive }) =>
-                          cn(
-                            'block rounded-md px-2 py-1.5 text-[13px] transition-colors',
-                            isActive
-                              ? 'font-medium text-primary'
-                              : 'text-muted-foreground hover:text-foreground',
-                          )
-                        }
-                      >
-                        {child.label}
-                      </NavLink>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
+          <NavList items={visibleNav} />
         </nav>
 
         <div className="border-t border-border p-3">
@@ -104,19 +74,28 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-5 py-3">
-          <StoreSwitcher />
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-4 py-3 sm:px-5">
+          <div className="flex min-w-0 items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden"
+              aria-label="Open menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen(true)}
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+            <StoreSwitcher />
+          </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" onClick={toggleTheme} title="Toggle theme">
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
-            <Button variant="outline" size="sm" className="lg:hidden" onClick={logout}>
-              Sign out
-            </Button>
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 p-5">
+        <main className="min-w-0 flex-1 p-4 sm:p-5">
           <ErrorBoundary resetKey={pathname}>
             <Outlet />
           </ErrorBoundary>
