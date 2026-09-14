@@ -3,6 +3,7 @@ import { RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { money } from '@/lib/utils';
 
 /**
@@ -17,12 +18,19 @@ export function PriceEditor({
   overridden,
   onChange,
   onReset,
+  align = 'end',
 }: {
   line: SaleLine;
   tax: Pick<Tax, 'rate'> | undefined;
   overridden: boolean;
   onChange: (price: number, basis: PriceBasis) => void;
   onReset: () => void;
+  /**
+   * Right-aligned inside the cart table's right-aligned price column; spread
+   * across the width of a cart card on a phone, where floating it to one edge
+   * leaves it looking detached from the line it belongs to.
+   */
+  align?: 'end' | 'between';
 }) {
   const rate = tax?.rate ?? line.taxRate;
   const [basis, setBasis] = useState<PriceBasis>('inclusive');
@@ -50,7 +58,7 @@ export function PriceEditor({
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-end gap-1">
+      <div className={cn('flex items-center gap-1', align === 'end' ? 'justify-end' : 'justify-between')}>
         <div className="flex overflow-hidden rounded-md border border-border">
           {(['exclusive', 'inclusive'] as const).map((option) => (
             <button

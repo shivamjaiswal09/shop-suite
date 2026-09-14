@@ -48,6 +48,27 @@ export function QuickBillingPage() {
 
   const addSku = (sku: Sku) => cart.addSku(sku, 1, store?.id);
 
+  /**
+   * One row set behind both cart renderings. A phone gets stacked cards and a
+   * desk gets the table, and computing this twice is how the two would come to
+   * disagree about a price or an oversell warning.
+   */
+  const cartRows = useMemo(
+    () =>
+      cart.lines.flatMap((line) => {
+        const priced = lines.find((l) => l.id === line.lineId);
+        if (!priced) return [];
+        const available = availableFor.get(line.sku.id);
+        return [{
+          line,
+          priced,
+          available,
+          overselling: available !== undefined && line.qty > available,
+        }];
+      }),
+    [cart.lines, lines, availableFor],
+  );
+
   const dueAmount = Math.max(
     Math.round((totals.grandTotal - tenders.reduce((sum, t) => sum + t.amount, 0)) * 100) / 100,
     0,
@@ -122,6 +143,89 @@ export function QuickBillingPage() {
               title="Cart"
               description="Prices come from the SKU. Edit either side of tax and the rest recomputes."
             />
+            {/* A phone gets the cart as cards. The table is seven columns wide and
+                would scroll sideways to reach the quantity stepper — the control
+                a cashier touches most. */}
+            <div className="divide-y divide-border lg:hidden">
+              {cartRows.length === 0 ? (
+                <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  Pick a product above to start billing.
+                </p>
+              ) : (
+                cartRows.map(({ line, priced, available, overselling }) => (
+                  <div key={line.lineId} className="space-y-3 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{line.sku.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {line.sku.code}
+                          {available !== undefined ? ` \u00b7 ${fmtQty(available)} available` : ''}
+                        </p>
+                        {overselling ? (
+                          <Badge tone="danger" className="mt-1">
+                            Exceeds available stock
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Remove ${line.sku.name}`}
+                        onClick={() => cart.remove(line.lineId)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          aria-label="Reduce quantity"
+                          onClick={() => cart.setQty(line.lineId, line.qty - 1)}
+                        >
+                          <Minus className="h-3.5 w-3.5" />
+                        </Button>
+                        <Input
+                          className="tabular w-16 text-center"
+                          aria-label={`Quantity of ${line.sku.name}`}
+                          value={line.qty}
+                          onChange={(e) => cart.setQty(line.lineId, Number(e.target.value) || 0)}
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          aria-label="Increase quantity"
+                          onClick={() => cart.setQty(line.lineId, line.qty + 1)}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <span className="tabular text-base font-semibold">{money(priced.lineTotal)}</span>
+                    </div>
+
+                    <PriceEditor
+                      line={priced}
+                      tax={taxes.get(line.sku.taxId)}
+                      overridden={line.unitPriceOverride !== undefined}
+                      align="between"
+                      onChange={(price, basis) => cart.setUnitPrice(line.lineId, price, basis)}
+                      onReset={() => cart.clearUnitPrice(line.lineId)}
+                    />
+
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Taxable {money(priced.taxableValue)}</span>
+                      <span>
+                        Tax {money(priced.taxAmount)} @ {priced.taxRate}%
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="hidden lg:block">
             <Table>
               <thead>
                 <tr>
@@ -135,14 +239,10 @@ export function QuickBillingPage() {
                 </tr>
               </thead>
               <tbody>
-                {cart.lines.length === 0 ? (
+                {cartRows.length === 0 ? (
                   <EmptyRow colSpan={7}>Pick a product above to start billing.</EmptyRow>
                 ) : (
-                  cart.lines.map((line) => {
-                    const priced = lines.find((l) => l.id === line.lineId);
-                    const available = availableFor.get(line.sku.id);
-                    const overselling = available !== undefined && line.qty > available;
-                    if (!priced) return null;
+                  cartRows.map(({ line, priced, available, overselling }) => {
                     return (
                       <tr key={line.lineId}>
                         <Td>
@@ -213,6 +313,7 @@ export function QuickBillingPage() {
                 )}
               </tbody>
             </Table>
+            </div>
           </Card>
         </div>
 
