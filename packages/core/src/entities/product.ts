@@ -18,8 +18,14 @@ export const skuSchema = z.object({
   id: idSchema,
   productId: idSchema,
   code: z.string().min(1),
+  /**
+   * Always present, though the form may not ask for it: a blank name falls
+   * back to the parent product's. It is copied onto every invoice line, so an
+   * empty one would print a blank column on a customer's bill.
+   */
   name: z.string().min(1),
-  barcode: z.string().min(1),
+  /** Absent for anything unbranded or loose — never an empty string. */
+  barcode: z.string().min(1).nullable(),
   uomId: idSchema,
   taxId: idSchema,
   purchasePrice: moneySchema.nonnegative(),

@@ -100,13 +100,16 @@ export interface NewProduct {
 
 export interface NewSku {
   productId: string;
+  /** The only field a SKU cannot be created without. */
   code: string;
-  name: string;
-  barcode: string;
+  /** Falls back to the parent product's name when omitted. */
+  name?: string;
+  /** Omitted for anything unbranded or loose. */
+  barcode?: string;
   uomId: string;
   taxId: string;
-  purchasePrice: number;
-  sellingPrice: number;
+  purchasePrice?: number;
+  sellingPrice?: number;
   mrp?: number;
   minStock?: number;
   reorderLevel?: number;
@@ -319,7 +322,8 @@ export interface ProductPatch {
 export interface SkuPatch {
   code?: string;
   name?: string;
-  barcode?: string;
+  /** Null clears it — a barcode entered by mistake has to be removable. */
+  barcode?: string | null;
   uomId?: string;
   taxId?: string;
   purchasePrice?: number;

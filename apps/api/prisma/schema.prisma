@@ -440,7 +440,11 @@ model Sku {
   productId     String
   code          String
   name          String
-  barcode       String
+  /// Nullable, not empty-string: `@@unique([companyId, barcode])` treats '' as
+  /// a value, so a second barcode-less SKU would collide. Postgres allows many
+  /// NULLs under a unique index. Plenty of stock has no barcode at all —
+  /// loose goods, spares, anything unbranded.
+  barcode       String?
   uomId         String
   taxId         String
   purchasePrice Decimal  @db.Decimal(12, 2)

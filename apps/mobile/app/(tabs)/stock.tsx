@@ -298,7 +298,7 @@ function StockCard({ row }: { row: StockRow }) {
             {row.sku.name}
           </Text>
           <Text style={[styles.cardMeta, { color: colors.mutedForeground }]} numberOfLines={1}>
-            {row.sku.code} · {row.sku.barcode}
+            {row.sku.barcode ? `${row.sku.code} · ${row.sku.barcode}` : row.sku.code}
           </Text>
         </View>
         <StockBadge alert={row.alert} />

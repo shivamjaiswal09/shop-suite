@@ -125,8 +125,12 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
       await createSku.mutateAsync({
         productId,
         code: form.code,
-        name: form.name,
-        barcode: form.barcode,
+        // Blank rather than absent would be stored as '', which the barcode
+        // unique index treats as a value — the second unbarcoded SKU would
+        // then collide. Absent lets the API store null and the name fall back
+        // to the product's.
+        name: form.name.trim() || undefined,
+        barcode: form.barcode.trim() || undefined,
         uomId,
         taxId,
         purchasePrice: Number(form.purchasePrice) || 0,
@@ -227,8 +231,7 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
             <Label htmlFor="barcode">Barcode</Label>
             <Input
               id="barcode"
-              required
-              placeholder="8901030101034"
+              placeholder="8901030101034 (optional)"
               value={form.barcode}
               onChange={(e) => set('barcode', e.target.value)}
             />
@@ -239,8 +242,7 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
           <Label htmlFor="name">SKU name</Label>
           <Input
             id="name"
-            required
-            placeholder="Aashirvaad Atta 2 kg"
+            placeholder="Defaults to the product name"
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
           />
@@ -290,7 +292,7 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
             <Input
               id="purchase"
               className="tabular"
-              required
+              placeholder="0"
               value={form.purchasePrice}
               onChange={(e) => set('purchasePrice', e.target.value)}
             />
@@ -300,7 +302,7 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
             <Input
               id="selling"
               className="tabular"
-              required
+              placeholder="0"
               value={form.sellingPrice}
               onChange={(e) => set('sellingPrice', e.target.value)}
             />

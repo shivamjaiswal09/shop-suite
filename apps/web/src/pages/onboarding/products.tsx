@@ -45,7 +45,7 @@ export function ProductsPage() {
       !needle ||
       sku.name.toLowerCase().includes(needle) ||
       sku.code.toLowerCase().includes(needle) ||
-      sku.barcode.includes(needle),
+      (sku.barcode?.includes(needle) ?? false),
   );
 
   return (
@@ -125,7 +125,7 @@ export function ProductsPage() {
                             title: `Edit ${sku.name}`,
                             fields: [
                               { name: 'code', label: 'SKU code', initial: sku.code, required: true },
-                              { name: 'barcode', label: 'Barcode', initial: sku.barcode, required: true },
+                              { name: 'barcode', label: 'Barcode', initial: sku.barcode ?? '' },
                               { name: 'name', label: 'Name', initial: sku.name, required: true, span: 2 },
                               {
                                 name: 'uomId',

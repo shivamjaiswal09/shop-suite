@@ -599,7 +599,11 @@ export class MockRepositories implements Repositories {
     listProducts: (all) => tick(this.store.products.filter((p) => all || p.active)),
     listSkus: (all) => tick(this.store.skus.filter((s) => all || s.active)),
     skuById: (id) => tick(this.store.skus.find((s) => s.id === id)),
-    skuByBarcode: (barcode) => tick(this.store.skus.find((s) => s.active && s.barcode === barcode.trim())),
+    skuByBarcode: (barcode) => {
+      // An empty needle must not match the SKUs that have no barcode.
+      const needle = barcode.trim();
+      return tick(needle ? this.store.skus.find((s) => s.active && s.barcode === needle) : undefined);
+    },
     searchSkus: (term, limit = 20) => {
       const needle = term.trim().toLowerCase();
       if (!needle) return tick<Sku[]>([]);
@@ -639,11 +643,14 @@ export class MockRepositories implements Repositories {
     },
 
     createSku: async (input) => {
-      if (!this.store.products.some((p) => p.id === input.productId)) {
+      const parent = this.store.products.find((p) => p.id === input.productId);
+      if (!parent) {
         throw new NotFoundError('Product', input.productId);
       }
-      if (this.store.skus.some((s) => s.barcode === input.barcode.trim())) {
-        throw new DuplicateBarcodeError(input.barcode);
+      // Only a real barcode can clash — any number of SKUs may have none.
+      const barcode = input.barcode?.trim() || null;
+      if (barcode && this.store.skus.some((s) => s.barcode === barcode)) {
+        throw new DuplicateBarcodeError(barcode);
       }
       if (this.store.skus.some((s) => s.code.toLowerCase() === input.code.trim().toLowerCase())) {
         throw new Error(`SKU code ${input.code} already exists`);
@@ -653,12 +660,13 @@ export class MockRepositories implements Repositories {
         id: this.store.nextId('sku'),
         productId: input.productId,
         code: input.code.trim(),
-        name: input.name.trim(),
-        barcode: input.barcode.trim(),
+        // A bill prints the SKU name, so an unnamed SKU borrows its product's.
+        name: input.name?.trim() || parent.name,
+        barcode,
         uomId: input.uomId,
         taxId: input.taxId,
-        purchasePrice: input.purchasePrice,
-        sellingPrice: input.sellingPrice,
+        purchasePrice: input.purchasePrice ?? 0,
+        sellingPrice: input.sellingPrice ?? 0,
         mrp: input.mrp,
         minStock: input.minStock ?? 0,
         reorderLevel: input.reorderLevel ?? 0,
@@ -706,9 +714,10 @@ export class MockRepositories implements Repositories {
       ),
 
     updateSku: async (id, patch, actorId) => {
-      if (patch.barcode) {
-        const barcode = patch.barcode.trim();
-        if (this.store.skus.some((s) => s.id !== id && s.barcode === barcode)) {
+      if (patch.barcode !== undefined) {
+        // '' and null both mean "no barcode"; only a real one can clash.
+        const barcode = patch.barcode?.trim() || null;
+        if (barcode && this.store.skus.some((s) => s.id !== id && s.barcode === barcode)) {
           throw new DuplicateBarcodeError(barcode);
         }
         patch = { ...patch, barcode };

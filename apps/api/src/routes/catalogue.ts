@@ -958,11 +958,17 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
         where: {
           companyId,
           active: true,
-          barcode: { not: needle },
-          OR: [
-            { code: { contains: needle, mode: 'insensitive' } },
-            { name: { contains: needle, mode: 'insensitive' } },
-          ],
+          // `barcode: { not: needle }` alone would drop every barcode-less SKU:
+          // in SQL, NULL != 'x' is NULL rather than true, so the row fails the
+          // filter. Spelling out the null branch keeps unbarcoded stock — which
+          // is most of what a counter searches by name — findable.
+          OR: [{ barcode: null }, { barcode: { not: needle } }],
+          AND: {
+            OR: [
+              { code: { contains: needle, mode: 'insensitive' } },
+              { name: { contains: needle, mode: 'insensitive' } },
+            ],
+          },
         },
         orderBy: { code: 'asc' },
         take: query.limit,
@@ -998,13 +1004,15 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
       .object({
         companyId: z.string().optional(),
         productId: z.string(),
+        // The code is the one thing a SKU cannot be created without: it is its
+        // identity in search, on a bill, and in every import a shop ever does.
         code: z.string().min(1),
-        name: z.string().min(1),
-        barcode: z.string().min(1),
+        name: z.string().trim().optional(),
+        barcode: z.string().trim().optional(),
         uomId: z.string(),
         taxId: z.string(),
-        purchasePrice: z.number().nonnegative(),
-        sellingPrice: z.number().nonnegative(),
+        purchasePrice: z.number().nonnegative().optional(),
+        sellingPrice: z.number().nonnegative().optional(),
         mrp: z.number().nonnegative().optional(),
         minStock: z.number().nonnegative().optional(),
         reorderLevel: z.number().nonnegative().optional(),
@@ -1013,17 +1021,27 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
       .parse(request.body);
     const { caller, companyId } = await gate(request, body.companyId, MANAGE);
 
-    const product = await prisma.product.findFirst({ where: { id: body.productId, companyId } });
-    found(product, 'Product', body.productId);
+    const parent = found(
+      await prisma.product.findFirst({ where: { id: body.productId, companyId } }),
+      'Product',
+      body.productId,
+    );
     await assertUomInCompany(body.uomId, companyId);
     await assertTaxInCompany(body.taxId, companyId);
 
-    const barcode = body.barcode.trim();
+    // Null rather than '', so any number of SKUs can go without one. Only a
+    // real barcode is checked for collisions — absence cannot collide.
+    const barcode = body.barcode || null;
     const code = body.code.trim();
-    await assertFree(
-      prisma.sku.findFirst({ where: { companyId, barcode } }),
-      `Barcode ${barcode} is already assigned to another SKU`,
-    );
+    // A SKU always carries a name because it is printed on the bill; when the
+    // form does not ask for one, the product it belongs to supplies it.
+    const name = body.name || parent.name;
+    if (barcode) {
+      await assertFree(
+        prisma.sku.findFirst({ where: { companyId, barcode } }),
+        `Barcode ${barcode} is already assigned to another SKU`,
+      );
+    }
     await assertFree(
       prisma.sku.findFirst({ where: { companyId, code: sameText(code) } }),
       `SKU code ${code} already exists`,
@@ -1040,12 +1058,12 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
           companyId,
           productId: body.productId,
           code,
-          name: body.name.trim(),
+          name,
           barcode,
           uomId: body.uomId,
           taxId: body.taxId,
-          purchasePrice: body.purchasePrice,
-          sellingPrice: body.sellingPrice,
+          purchasePrice: body.purchasePrice ?? 0,
+          sellingPrice: body.sellingPrice ?? 0,
           mrp: body.mrp,
           minStock: body.minStock ?? 0,
           reorderLevel: body.reorderLevel ?? 0,
@@ -1093,7 +1111,8 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
       .object({
         code: z.string().min(1).optional(),
         name: z.string().min(1).optional(),
-        barcode: z.string().min(1).optional(),
+        /** Null or '' clears it; undefined leaves it alone. */
+        barcode: z.string().trim().nullish(),
         uomId: z.string().optional(),
         taxId: z.string().optional(),
         purchasePrice: z.number().nonnegative().optional(),
@@ -1108,7 +1127,9 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
     const existing = found(await prisma.sku.findUnique({ where: { id } }), 'Sku', id);
     const { caller, companyId } = await gate(request, existing.companyId, MANAGE);
 
-    const barcode = patch.barcode?.trim();
+    // Undefined means "not being changed"; anything else resolves to a real
+    // barcode or to null, never to ''.
+    const barcode = patch.barcode === undefined ? undefined : patch.barcode || null;
     // `NOT: { id }` is the whole point: re-saving a row's own barcode is not a
     // clash, and an edit form posts every field back whether it changed or not.
     if (barcode) {

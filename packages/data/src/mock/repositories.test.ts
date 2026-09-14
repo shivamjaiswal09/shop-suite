@@ -61,6 +61,56 @@ describe('billing decrements stock through the ledger', () => {
 });
 
 describe('product & SKU creation', () => {
+  it('creates a SKU with nothing but a code, and does not collide on the second', async () => {
+    // Most stock in a hardware or spares shop carries no barcode at all, so a
+    // second unbarcoded SKU must not read as a duplicate of the first. Storing
+    // '' would do exactly that — the barcode index treats it as a value.
+    const { repos, actor } = await setup();
+    const category = (await repos.masters.categories())[0]!;
+    const product = await repos.products.createProduct({
+      name: 'Inner Tube',
+      categoryId: category.id,
+      createdBy: actor,
+    });
+    const uom = (await repos.masters.unitsOfMeasure())[0]!;
+    const tax = (await repos.masters.taxes())[0]!;
+    const bare = { productId: product.id, uomId: uom.id, taxId: tax.id, createdBy: actor };
+
+    const first = await repos.products.createSku({ ...bare, code: 'TUBE-17' });
+    const second = await repos.products.createSku({ ...bare, code: 'TUBE-18' });
+
+    expect(first.barcode).toBeNull();
+    expect(second.barcode).toBeNull();
+    // A bill prints the SKU name, so it falls back rather than being blank.
+    expect(first.name).toBe('Inner Tube');
+    expect(first.purchasePrice).toBe(0);
+    expect(first.sellingPrice).toBe(0);
+  });
+
+  it('never matches a barcode-less SKU when scanning', async () => {
+    const { repos, actor } = await setup();
+    const category = (await repos.masters.categories())[0]!;
+    const product = await repos.products.createProduct({
+      name: 'Valve Cap',
+      categoryId: category.id,
+      createdBy: actor,
+    });
+    const uom = (await repos.masters.unitsOfMeasure())[0]!;
+    const tax = (await repos.masters.taxes())[0]!;
+    await repos.products.createSku({
+      productId: product.id,
+      code: 'CAP-1',
+      uomId: uom.id,
+      taxId: tax.id,
+      createdBy: actor,
+    });
+
+    expect(await repos.products.skuByBarcode('')).toBeUndefined();
+    expect(await repos.products.skuByBarcode('   ')).toBeUndefined();
+    // But it is still findable the way a counter actually looks for it.
+    expect((await repos.products.searchSkus('CAP-1')).map((s) => s.code)).toContain('CAP-1');
+  });
+
   it('creates a SKU and seeds opening stock as a ledger movement', async () => {
     const { repos, location, actor } = await setup();
     const category = (await repos.masters.categories())[0]!;
