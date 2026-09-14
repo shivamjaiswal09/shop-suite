@@ -29,6 +29,11 @@ export function App() {
   const theme = useSessionStore((s) => s.theme);
   const isAuthenticated = useSessionStore((s) => s.user !== null);
   const isSuperAdmin = useIsSuperAdmin();
+  // An admin who has just created a company signs in before any store exists.
+  // Home would render — every widget takes an optional store — but it would be
+  // a screen of empty cards with no hint that the first thing to do is add a
+  // location.
+  const hasStore = useSessionStore((s) => s.store !== null);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -66,7 +71,10 @@ export function App() {
       {downloadRoute}
       <Route path="/login" element={<Navigate to="/" replace />} />
       <Route element={<AppShell />}>
-        <Route index element={<HomePage />} />
+        <Route
+          index
+          element={hasStore ? <HomePage /> : <Navigate to="/onboarding/locations" replace />}
+        />
 
         <Route path="sales">
           <Route index element={<Navigate to="/sales/billing" replace />} />
