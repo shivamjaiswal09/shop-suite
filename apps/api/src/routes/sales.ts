@@ -797,13 +797,50 @@ export async function registerSalesRoutes(app: FastifyInstance) {
         // never leaves a billed document behind.
         await assertAvailable(tx, companyId, store.id, lines);
 
+        // Customer-scope answers identify a person, so they belong on the
+        // customer rather than on the bill. A phone with no name is carried on
+        // the invoice alone: `Customer.name` is non-null, and a cashier forced
+        // past that requirement types the phone number into the name field.
+        const fields = body.customerFields ?? {};
+        let customerId = body.customerId;
+        if (!customerId && fields.phone) {
+          const existing = await tx.customer.findFirst({
+            where: { companyId, phone: fields.phone },
+          });
+          if (existing) {
+            customerId = existing.id;
+            // Only what was actually entered: a blank field on this bill must
+            // not erase a detail captured on an earlier one.
+            const patch = Object.fromEntries(
+              (['name', 'email', 'gstin', 'addressLine'] as const)
+                .filter((k) => fields[k])
+                .map((k) => [k, fields[k]]),
+            );
+            if (Object.keys(patch).length > 0) {
+              await tx.customer.update({ where: { id: existing.id }, data: patch });
+            }
+          } else if (fields.name) {
+            const made = await tx.customer.create({
+              data: {
+                companyId,
+                name: fields.name,
+                phone: fields.phone,
+                email: fields.email,
+                gstin: fields.gstin,
+                addressLine: fields.addressLine,
+              },
+            });
+            customerId = made.id;
+          }
+        }
+
         const written = await writeInvoice(tx, {
           companyId,
           actorId: caller.userId,
           store,
           counterId: body.counterId,
-          customerId: body.customerId,
-          customerName: body.customerName ?? customer?.name,
+          customerId,
+          customerName: fields.name ?? body.customerName ?? customer?.name,
           customerDetails: body.customerDetails,
           lines,
           totals: calcTotals(lines),

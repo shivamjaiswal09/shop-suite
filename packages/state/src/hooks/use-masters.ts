@@ -1,5 +1,6 @@
 import type { Category, ReasonCode, Tax } from '@shop/core';
-import { useQuery } from '@tanstack/react-query';
+import type { BillFieldPatch, NewBillField } from '@shop/data';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { qk } from '../query-keys';
 import { STALE } from '../query-client';
@@ -90,5 +91,59 @@ export function useReasonCodes(usage?: ReasonCode['usage'], includeInactive = fa
     queryKey: [...qk.reasonCodes(usage), includeInactive],
     queryFn: () => repos.masters.reasonCodes(usage, includeInactive),
     staleTime: STALE.REFERENCE,
+  });
+}
+
+/**
+ * The customer details this company asks for at the till.
+ *
+ * Reference data in that it changes rarely, but it decides what a cashier is
+ * forced to type, so a correction has to reach the counter promptly rather than
+ * at the end of a thirty-minute window.
+ */
+export function useBillFields(includeInactive = false) {
+  const repos = useRepositories();
+  return useQuery({
+    queryKey: ['masters', 'bill-fields', includeInactive],
+    queryFn: () => repos.masters.billFields(includeInactive),
+    staleTime: STALE.ORG,
+  });
+}
+
+export function useCreateBillField() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: NewBillField) => repos.masters.createBillField(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['masters', 'bill-fields'] });
+    },
+  });
+}
+
+export function useUpdateBillField() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch, actorId }: { id: string; patch: BillFieldPatch; actorId: string }) =>
+      repos.masters.updateBillField(id, patch, actorId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['masters', 'bill-fields'] });
+    },
+  });
+}
+
+/**
+ * Looks a walk-in up by phone. Held back until the number looks complete, so
+ * the counter is not queried on every keystroke.
+ */
+export function useCustomerByPhone(phone: string | undefined) {
+  const repos = useRepositories();
+  const needle = (phone ?? '').trim();
+  return useQuery({
+    queryKey: ['masters', 'customer-by-phone', needle],
+    queryFn: () => repos.masters.customerByPhone(needle),
+    enabled: needle.length >= 10,
+    staleTime: STALE.LIVE,
   });
 }

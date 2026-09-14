@@ -605,6 +605,18 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
     return rows.map(publicCustomer);
   });
 
+  app.get('/customers/by-phone/:phone', async (request) => {
+    const params = z.object({ phone: z.string() }).parse(request.params);
+    const query = z.object({ companyId: z.string().optional() }).parse(request.query);
+    const { companyId } = requireCompany(await who(request), query.companyId);
+
+    const phone = params.phone.trim();
+    // An empty needle must not match the customers who have no phone at all.
+    if (!phone) throw new HttpError(404, 'Customer not found');
+    const row = await prisma.customer.findFirst({ where: { companyId, phone, active: true } });
+    return publicCustomer(found(row, 'Customer', phone));
+  });
+
   app.post('/customers', async (request, reply) => {
     const body = z
       .object({
