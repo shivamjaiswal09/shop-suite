@@ -22,10 +22,12 @@ export function StoreSwitcher() {
   const [pending, setPending] = useState<string | null>(null);
 
   return (
-    <div className="flex items-center gap-2">
-      <StoreIcon className="h-4 w-4 text-muted-foreground" />
+    <div className="flex min-w-0 items-center gap-2">
+      <StoreIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
       <Select
-        className="h-8 w-56 text-[13px]"
+        // Fixed width on a phone pushed the header's own controls onto a second
+        // row. It may shrink here and take its full width once there is room.
+        className="h-8 w-full min-w-0 text-[13px] sm:w-56"
         value={store?.id ?? ''}
         disabled={stores.data.length <= 1}
         onChange={(e) => {
@@ -44,7 +46,11 @@ export function StoreSwitcher() {
           </option>
         ))}
       </Select>
-      <span className="text-xs text-muted-foreground">selling store</span>
+      {/* Labels the select for a desk user. On a phone it is the only select in
+          the header, so the words cost more room than they explain. */}
+      <span className="hidden whitespace-nowrap text-xs text-muted-foreground sm:inline">
+        selling store
+      </span>
 
       <Modal
         open={pending !== null}

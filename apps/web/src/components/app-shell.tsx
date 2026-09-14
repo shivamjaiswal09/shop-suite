@@ -74,7 +74,7 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-4 py-3 sm:px-5">
+        <header className="flex items-center justify-between gap-2 border-b border-border bg-card px-4 py-3 sm:gap-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-2">
             <Button
               variant="ghost"
@@ -88,7 +88,7 @@ export function AppShell() {
             </Button>
             <StoreSwitcher />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <Button variant="ghost" size="icon" onClick={toggleTheme} title="Toggle theme">
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>

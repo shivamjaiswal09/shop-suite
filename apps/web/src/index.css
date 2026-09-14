@@ -68,3 +68,63 @@
     color: var(--destructive);
   }
 }
+
+@layer base {
+  /*
+   * Narrow screens scroll wide tables sideways. Pinning the first column keeps
+   * the row's identity — the SKU, the invoice number — on screen while the
+   * figures move under it; without it you scroll right and no longer know which
+   * row you are reading.
+   *
+   * Only below the sidebar's breakpoint. Above it the table fits, sticky would
+   * do nothing, and this cannot regress a desktop layout.
+   *
+   * `--card` because every table in the app sits on a card or in a modal, both
+   * of which use it. A transparent cell would let the scrolled columns show
+   * through it.
+   */
+  @media (max-width: 1023px) {
+    .table-scroll th:first-child,
+    .table-scroll td:first-child:not([colspan]) {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      background-color: var(--card);
+    }
+
+    /* Marks where the pinned column ends, so it reads as pinned rather than as
+       a rendering artefact when the rest slides beneath it. */
+    .table-scroll th:first-child::after,
+    .table-scroll td:first-child:not([colspan])::after {
+      content: '';
+      position: absolute;
+      inset-block: 0;
+      right: 0;
+      width: 1px;
+      background-color: var(--border);
+    }
+  }
+
+  /*
+   * Touch input, not a mouse pointer. A finger is far less precise than a
+   * cursor, so the compact sizes that suit a desktop toolbar become easy to
+   * miss on a phone.
+   *
+   * 16px on fields is not for legibility: Safari on iOS zooms the page in when
+   * focusing an input whose text is smaller, and never zooms back out.
+   */
+  @media (pointer: coarse) {
+    button,
+    [role='button'],
+    select {
+      min-height: 2.5rem;
+    }
+
+    input:not([type='checkbox']):not([type='radio']),
+    select,
+    textarea {
+      font-size: 16px;
+      min-height: 2.5rem;
+    }
+  }
+}
