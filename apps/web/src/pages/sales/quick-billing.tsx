@@ -16,6 +16,7 @@ import {
 } from '@shop/state';
 import { Minus, Plus, Receipt, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { CapturedDetails } from './captured-details';
 import { CustomerStep } from './customer-step';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -586,6 +587,14 @@ export function QuickBillingPage() {
                 description={`${shortTime(lastInvoice.createdAt)} · ${lastInvoice.status}`}
               />
               <CardBody className="space-y-2 text-sm">
+                {/* What was recorded about the customer, above the lines it was
+                    recorded against — it is the part a cashier reads back to
+                    check before handing the bill over. */}
+                <CapturedDetails
+                  invoice={lastInvoice}
+                  fields={activeFields}
+                  className="space-y-1 border-b border-border pb-2"
+                />
                 {lastInvoice.lines.map((line) => (
                   <div key={line.id} className="flex justify-between gap-3">
                     <span className="truncate">

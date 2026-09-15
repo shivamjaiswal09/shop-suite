@@ -2,6 +2,7 @@ import type { Invoice } from '@shop/core';
 import {
   useCan,
   useCancelInvoice,
+  useBillFields,
   useCapturePayment,
   useDeleteInvoice,
   useInvoicePayments,
@@ -9,6 +10,7 @@ import {
   useSessionStore,
 } from '@shop/state';
 import { useEffect, useState, type FormEvent } from 'react';
+import { CapturedDetails } from './captured-details';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Label, Select } from '@/components/ui/input';
@@ -25,6 +27,8 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
   const user = useSessionStore((s) => s.user);
   const methods = usePaymentMethods();
   const payments = useInvoicePayments(invoice?.id);
+  // Labels are resolved at display time; see CapturedDetails.
+  const billFields = useBillFields(true);
   const capture = useCapturePayment();
 
   const [methodId, setMethodId] = useState('');
@@ -157,6 +161,14 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
             </tbody>
           </Table>
         </div>
+
+        {/* Above the totals: a reprint is usually pulled up to check who a bill
+            was for, not what it added up to. */}
+        <CapturedDetails
+          invoice={invoice}
+          fields={billFields.data ?? []}
+          className="space-y-1.5 rounded-md border border-border p-3"
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5 text-sm">
