@@ -26,6 +26,8 @@ import {
   type Principal,
 } from '../auth.ts';
 import { prisma } from '../db.ts';
+import { invoiceHtml } from '../pdf/invoice-html.ts';
+import { renderPdf } from '../pdf/render.ts';
 
 /**
  * Selling, purchasing and day-end — the money-and-stock half of the API.
@@ -984,6 +986,80 @@ export async function registerSalesRoutes(app: FastifyInstance) {
     });
     if (!row) throw new HttpError(404, `Invoice not found: ${id}`);
     return invoiceWire(row);
+  });
+
+  /**
+   * The invoice as a printable A4 PDF.
+   *
+   * Deliberately thin: it resolves the invoice, builds the page, and renders.
+   * Everything about what the page says lives in the HTML module beside it.
+   */
+  app.get('/invoices/:id/pdf', async (request, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const query = z
+      .object({
+        companyId: z.string().optional(),
+        copy: z.enum(['original', 'duplicate', 'triplicate']).default('original'),
+      })
+      .parse(request.query);
+    const { companyId } = requireCompany(await principal(request), query.companyId);
+
+    const row = await prisma.invoice.findFirst({
+      where: { id, companyId },
+      include: { lines: { orderBy: { id: 'asc' } } },
+    });
+    if (!row) throw new HttpError(404, `Invoice not found: ${id}`);
+
+    const entity = row.billFromId
+      ? await prisma.billFrom.findFirst({ where: { id: row.billFromId, companyId } })
+      : null;
+
+    // Built from the row rather than the wire projection, whose values are
+    // typed loosely for JSON. The page wants numbers, not strings.
+    const pdf = await renderPdf(
+      invoiceHtml(
+        {
+          number: row.number,
+          createdAt: row.createdAt.toISOString(),
+          customerName: row.customerName ?? undefined,
+          customerGstin: row.customerGstin ?? undefined,
+          interState: row.interState,
+          lines: row.lines.map((line) => ({
+            name: line.name,
+            hsnCode: line.hsnCode ?? undefined,
+            qty: n(line.qty),
+            unitPrice: n(line.unitPrice),
+            taxRate: n(line.taxRate),
+            taxableValue: n(line.taxableValue),
+            taxAmount: n(line.taxAmount),
+            lineTotal: n(line.lineTotal),
+          })),
+          totals: {
+            taxableValue: n(row.taxableValue),
+            taxTotal: n(row.taxTotal),
+            roundOff: n(row.roundOff),
+            grandTotal: n(row.grandTotal),
+          },
+          // What the bill was issued under, carried on the invoice itself.
+          billFrom: row.billFromName
+            ? {
+                legalName: row.billFromName,
+                gstin: row.billFromGstin ?? undefined,
+                pan: row.billFromPan ?? undefined,
+                addressLine: row.billFromAddress ?? undefined,
+                phones: row.billFromPhones,
+              }
+            : undefined,
+        },
+        entity,
+        query.copy,
+      ),
+    );
+    reply
+      .header('content-type', 'application/pdf')
+      // Inline so a browser previews it; the filename is what a save keeps.
+      .header('content-disposition', `inline; filename="${row.number}.pdf"`);
+    return reply.send(pdf);
   });
 
   /* ------------------------------------------------- cancelling and deleting */

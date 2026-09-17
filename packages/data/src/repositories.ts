@@ -684,7 +684,19 @@ export interface InvoiceRepository {
    * be reprinted afterwards.
    */
   remove(id: string, confirmNumber: string): Promise<void>;
+  /**
+   * The printable bill. Rendered server-side, so what a phone sends to a
+   * bluetooth printer is the same document the accountant files.
+   *
+   * Returns a Blob rather than a URL: the session is an httpOnly cookie and a
+   * failed request must surface the API's message, which a bare link in a new
+   * tab would show as raw JSON.
+   */
+  pdf(id: string, copy?: InvoiceCopy): Promise<Blob>;
 }
+
+/** Which of the three GST copies is being printed. */
+export type InvoiceCopy = 'original' | 'duplicate' | 'triplicate';
 
 export interface PaymentRepository {
   capture(input: CapturePayment): Promise<Payment>;

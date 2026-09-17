@@ -1397,6 +1397,14 @@ export class MockRepositories implements Repositories {
       this.store.invoices = this.store.invoices.filter((i) => i.id !== invoice.id);
       return tick(undefined);
     },
+    pdf: async () => {
+      // Refused rather than faked. The bill is rendered by a browser on the
+      // server; there is nothing here that could produce the same document, and
+      // handing back a plausible-looking stand-in would let a wrong layout ship
+      // having "worked" in mock mode.
+      await tick(undefined);
+      throw new Error('Printing a bill needs the API — mock data cannot render a PDF.');
+    },
   };
 
   /**

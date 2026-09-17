@@ -562,6 +562,7 @@ export function createSalesRepositories(fetcher: Fetcher): SalesRepositories {
       remove: async (id, confirmNumber) => {
         await fetcher.request<{ deleted: true }>('DELETE', `/invoices/${id}`, { confirmNumber });
       },
+      pdf: (id, copy = 'original') => fetcher.blob(`/invoices/${id}/pdf`, { copy }),
     },
 
     payments: {

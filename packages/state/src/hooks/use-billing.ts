@@ -7,7 +7,7 @@ import {
   type SaleTotals,
   type TaxBreakupRow,
 } from '@shop/core';
-import type { CapturePayment, InvoiceFilter, SaleLineInput } from '@shop/data';
+import type { CapturePayment, InvoiceCopy, InvoiceFilter, SaleLineInput } from '@shop/data';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useCartStore } from '../cart';
@@ -167,6 +167,26 @@ export function useDeleteInvoice() {
       void queryClient.invalidateQueries({ queryKey: ['invoices'] });
       void queryClient.invalidateQueries({ queryKey: qk.closing });
       void queryClient.invalidateQueries({ queryKey: qk.audit });
+    },
+  });
+}
+
+/**
+ * Fetches the printable bill and hands it to the browser.
+ *
+ * Opened in a tab rather than downloaded: the point is the print dialog, which
+ * is what reaches a bluetooth printer from a phone. The object URL is revoked
+ * on a timer because revoking it immediately races the viewer that is still
+ * loading it.
+ */
+export function usePrintInvoice() {
+  const repos = useRepositories();
+  return useMutation({
+    mutationFn: async ({ id, copy }: { id: string; copy?: InvoiceCopy }) => {
+      const blob = await repos.invoices.pdf(id, copy);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     },
   });
 }

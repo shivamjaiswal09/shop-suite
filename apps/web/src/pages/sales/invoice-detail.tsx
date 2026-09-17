@@ -7,6 +7,7 @@ import {
   useDeleteInvoice,
   useInvoicePayments,
   usePaymentMethods,
+  usePrintInvoice,
   useSessionStore,
 } from '@shop/state';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -41,6 +42,7 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
   const isAdmin = useCan('admin.manage');
   const cancelInvoice = useCancelInvoice();
   const deleteInvoice = useDeleteInvoice();
+  const print = usePrintInvoice();
   const [adminMode, setAdminMode] = useState<'none' | 'cancel' | 'delete'>('none');
   const [note, setNote] = useState('');
   const [confirmNumber, setConfirmNumber] = useState('');
@@ -128,9 +130,23 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
       description={`${invoice.businessDate} · ${shortTime(invoice.createdAt)} · ${invoice.customerName ?? 'Walk-in Customer'}`}
       onClose={close}
       footer={
-        <Button variant="outline" onClick={close}>
-          Close
-        </Button>
+        <div className="flex w-full items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              disabled={print.isPending}
+              onClick={() => print.mutate({ id: invoice.id, copy: 'original' })}
+            >
+              {print.isPending ? 'Preparing…' : 'Print bill'}
+            </Button>
+            {print.error ? (
+              <span className="text-sm text-destructive">{(print.error as Error).message}</span>
+            ) : null}
+          </div>
+          <Button variant="outline" onClick={close}>
+            Close
+          </Button>
+        </div>
       }
     >
       <div className="space-y-5">

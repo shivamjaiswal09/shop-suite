@@ -58,6 +58,24 @@ export function createFetcher(config: HttpConfig) {
     post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
     patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
     del: <T>(path: string) => request<T>('DELETE', path),
+    /**
+     * A binary GET — a PDF, not JSON.
+     *
+     * It repeats the request shape rather than reusing `request` because the
+     * success path must not parse the body, while the failure path still has to
+     * read the API's `{ error }` so the cashier sees a sentence.
+     */
+    blob: async (path: string, query?: Query): Promise<Blob> => {
+      const response = await fetch(`${config.baseUrl}${withQuery(path, query)}`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new ApiError(response.status, detail?.error ?? `Request failed (${response.status})`);
+      }
+      return response.blob();
+    },
   };
 }
 
