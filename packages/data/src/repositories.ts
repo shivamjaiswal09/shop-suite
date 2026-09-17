@@ -124,7 +124,7 @@ export interface NewBillFrom {
   pan?: string;
   addressLine?: string;
   email?: string;
-  phone?: string;
+  phones?: string[];
   /** Branches allowed to bill under it. */
   locationIds?: string[];
 }
@@ -135,7 +135,7 @@ export interface BillFromPatch {
   pan?: string | null;
   addressLine?: string | null;
   email?: string | null;
-  phone?: string | null;
+  phones?: string[];
   /** Replaces the whole mapping when given; omitted leaves it alone. */
   locationIds?: string[];
   active?: boolean;

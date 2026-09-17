@@ -714,7 +714,7 @@ describe('bill-from entities', () => {
       pan: 'AAAAA1111A',
       addressLine: '12 MG Road, Bengaluru',
       email: 'billing@smauto.in',
-      phone: '+91 80 4000 1001',
+      phones: ['+91 80 4000 1001', '+91 80 4000 1002'],
       locationIds: [store.id],
     });
 
@@ -734,7 +734,7 @@ describe('bill-from entities', () => {
       pan: 'AAAAA1111A',
       addressLine: '12 MG Road, Bengaluru',
       email: 'billing@smauto.in',
-      phone: '+91 80 4000 1001',
+      phones: ['+91 80 4000 1001', '+91 80 4000 1002'],
     });
   });
 

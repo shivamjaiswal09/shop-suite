@@ -428,7 +428,7 @@ export function QuickBillingPage() {
                             ['GSTIN', resolvedBillFrom.gstin],
                             ['PAN', resolvedBillFrom.pan],
                             ['Address', resolvedBillFrom.addressLine],
-                            ['Phone', resolvedBillFrom.phone],
+                            ['Phone', resolvedBillFrom.phones.join(', ')],
                             ['Email', resolvedBillFrom.email],
                           ] as const
                         )

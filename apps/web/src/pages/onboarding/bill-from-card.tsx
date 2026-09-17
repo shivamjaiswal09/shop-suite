@@ -6,6 +6,7 @@ import {
   useSessionStore,
   useUpdateBillFrom,
 } from '@shop/state';
+import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,8 @@ interface Draft {
   pan: string;
   addressLine: string;
   email: string;
-  phone: string;
+  /** Always holds at least one row, so the form never renders with no input. */
+  phones: string[];
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -27,8 +29,12 @@ const EMPTY_DRAFT: Draft = {
   pan: '',
   addressLine: '',
   email: '',
-  phone: '',
+  phones: [''],
 };
+
+/** Blank rows are what an untouched input looks like, not a number. */
+const cleanPhones = (phones: string[]): string[] =>
+  phones.map((p) => p.trim()).filter(Boolean);
 
 /**
  * The fields of an entity, rendered identically whether it is being created or
@@ -44,7 +50,12 @@ function EntityFields({
   draft: Draft;
   onChange: (patch: Partial<Draft>) => void;
 }) {
-  const field = (key: keyof Draft, label: string, placeholder?: string, span?: boolean) => (
+  const field = (
+    key: Exclude<keyof Draft, 'phones'>,
+    label: string,
+    placeholder?: string,
+    span?: boolean,
+  ) => (
     <div className={span ? 'sm:col-span-2' : undefined}>
       <Label htmlFor={`${idPrefix}-${key}`}>{label}</Label>
       <Input
@@ -62,8 +73,48 @@ function EntityFields({
       {field('gstin', 'GSTIN', '29AAAAA0000A1Z5')}
       {field('pan', 'PAN', 'AAAAA1111A')}
       {field('addressLine', 'Address', '12 MG Road, Bengaluru', true)}
-      {field('phone', 'Phone', '+91 80 4000 1001')}
-      {field('email', 'Email', 'billing@smauto.in', true)}
+      {field('email', 'Email', 'billing@smauto.in')}
+
+      <div className="sm:col-span-3">
+        <Label>Phone numbers</Label>
+        <div className="space-y-2">
+          {draft.phones.map((phone, index) => (
+            <div key={index} className="flex gap-2">
+              <Input
+                id={`${idPrefix}-phone-${index}`}
+                className="flex-1"
+                placeholder="+91 80 4000 1001"
+                value={phone}
+                onChange={(e) =>
+                  onChange({
+                    phones: draft.phones.map((p, i) => (i === index ? e.target.value : p)),
+                  })
+                }
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Remove this number"
+                // Never removes the last row: a form with no input to type into
+                // looks broken rather than empty.
+                disabled={draft.phones.length === 1}
+                onClick={() => onChange({ phones: draft.phones.filter((_, i) => i !== index) })}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onChange({ phones: [...draft.phones, ''] })}
+          >
+            <Plus className="h-3.5 w-3.5" /> Add another number
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -101,7 +152,7 @@ export function BillFromCard() {
         pan: draft.pan.trim() || undefined,
         addressLine: draft.addressLine.trim() || undefined,
         email: draft.email.trim() || undefined,
-        phone: draft.phone.trim() || undefined,
+        phones: cleanPhones(draft.phones),
         locationIds,
       });
       setDraft(EMPTY_DRAFT);
@@ -125,7 +176,7 @@ export function BillFromCard() {
           pan: editing.pan.trim() || null,
           addressLine: editing.addressLine.trim() || null,
           email: editing.email.trim() || null,
-          phone: editing.phone.trim() || null,
+          phones: cleanPhones(editing.phones),
         },
         actorId: user.id,
       });
@@ -230,7 +281,7 @@ export function BillFromCard() {
                         entity.gstin ? `GSTIN ${entity.gstin}` : 'No GSTIN',
                         entity.pan ? `PAN ${entity.pan}` : null,
                         entity.addressLine,
-                        entity.phone,
+                        ...entity.phones,
                         entity.email,
                       ]
                         .filter(Boolean)
@@ -249,7 +300,7 @@ export function BillFromCard() {
                           pan: entity.pan ?? '',
                           addressLine: entity.addressLine ?? '',
                           email: entity.email ?? '',
-                          phone: entity.phone ?? '',
+                          phones: entity.phones.length > 0 ? entity.phones : [''],
                         })
                       }
                     >

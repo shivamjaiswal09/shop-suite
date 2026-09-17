@@ -157,7 +157,7 @@ const invoiceWire = (row: TotalsRow & { lines: LineRow[] } & Record<string, unkn
         pan: row.billFromPan ?? undefined,
         addressLine: row.billFromAddress ?? undefined,
         email: row.billFromEmail ?? undefined,
-        phone: row.billFromPhone ?? undefined,
+        phones: row.billFromPhones,
       }
     : undefined,
   businessDate: row.businessDate,
@@ -406,7 +406,7 @@ async function writeInvoice(
       pan: string | null;
       addressLine: string | null;
       email: string | null;
-      phone: string | null;
+      phones: string[];
     };
     lines: SaleLine[];
     totals: SaleTotals;
@@ -430,7 +430,7 @@ async function writeInvoice(
       billFromPan: args.billFrom?.pan,
       billFromAddress: args.billFrom?.addressLine,
       billFromEmail: args.billFrom?.email,
-      billFromPhone: args.billFrom?.phone,
+      billFromPhones: args.billFrom?.phones ?? [],
       businessDate: businessDateOf(at),
       status: 'unpaid',
       ...args.totals,
@@ -883,7 +883,7 @@ export async function registerSalesRoutes(app: FastifyInstance) {
             pan: entity.pan,
             addressLine: entity.addressLine,
             email: entity.email,
-            phone: entity.phone,
+            phones: entity.phones,
           };
         }
 

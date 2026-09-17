@@ -46,7 +46,7 @@ export function CapturedDetails({
               ['GSTIN', invoice.billFrom.gstin],
               ['PAN', invoice.billFrom.pan],
               ['Address', invoice.billFrom.addressLine],
-              ['Phone', invoice.billFrom.phone],
+              ['Phone', invoice.billFrom.phones.join(', ')],
               ['Email', invoice.billFrom.email],
             ] as const
           )

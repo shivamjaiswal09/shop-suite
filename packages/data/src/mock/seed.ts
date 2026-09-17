@@ -308,6 +308,7 @@ export function createSeededStore(): InMemoryStore {
       legalName: 'Nandi Retail Pvt Ltd',
       gstin: '29AABCN1234R1ZQ',
       pan: 'AABCN1234R',
+      phones: ['+91 80 4000 1001'],
       locationIds: [storeA.id, storeB.id],
       active: true,
     },

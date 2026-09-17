@@ -530,7 +530,7 @@ export class MockRepositories implements Repositories {
         pan: input.pan?.trim() || undefined,
         addressLine: input.addressLine?.trim() || undefined,
         email: input.email?.trim() || undefined,
-        phone: input.phone?.trim() || undefined,
+        phones: input.phones ?? [],
         locationIds: input.locationIds ?? [],
         active: true,
       });
@@ -559,7 +559,7 @@ export class MockRepositories implements Repositories {
         entity.addressLine = patch.addressLine?.trim() || undefined;
       }
       if (patch.email !== undefined) entity.email = patch.email?.trim() || undefined;
-      if (patch.phone !== undefined) entity.phone = patch.phone?.trim() || undefined;
+      if (patch.phones !== undefined) entity.phones = patch.phones;
       if (patch.locationIds !== undefined) entity.locationIds = patch.locationIds;
       if (patch.active !== undefined) entity.active = patch.active;
 
@@ -2113,7 +2113,7 @@ export class MockRepositories implements Repositories {
       pan: entity.pan,
       addressLine: entity.addressLine,
       email: entity.email,
-      phone: entity.phone,
+      phones: entity.phones,
     };
   }
 

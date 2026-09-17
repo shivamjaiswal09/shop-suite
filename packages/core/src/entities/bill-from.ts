@@ -16,7 +16,8 @@ export const billFromSchema = z.object({
   pan: z.string().optional(),
   addressLine: z.string().optional(),
   email: z.string().optional(),
-  phone: z.string().optional(),
+  /** A shop often publishes more than one number. Ordered as entered. */
+  phones: z.array(z.string()).default([]),
   /** Branches allowed to bill under it. */
   locationIds: z.array(idSchema).default([]),
   active: z.boolean().default(true),
@@ -31,7 +32,7 @@ export const billFromSnapshotSchema = z.object({
   pan: z.string().optional(),
   addressLine: z.string().optional(),
   email: z.string().optional(),
-  phone: z.string().optional(),
+  phones: z.array(z.string()).default([]),
 });
 export type BillFromSnapshot = z.infer<typeof billFromSnapshotSchema>;
 

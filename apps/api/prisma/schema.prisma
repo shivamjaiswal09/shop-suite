@@ -312,7 +312,8 @@ model BillFrom {
   pan         String?
   addressLine String?
   email       String?
-  phone       String?
+  /// A shop often publishes more than one number. Ordered as entered.
+  phones      String[] @default([])
   active      Boolean @default(true)
 
   company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -890,7 +891,7 @@ model Invoice {
   billFromPan     String?
   billFromAddress String?
   billFromEmail   String?
-  billFromPhone   String?
+  billFromPhones  String[] @default([])
   businessDate String
   status       InvoiceStatus
 
