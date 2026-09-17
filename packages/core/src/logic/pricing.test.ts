@@ -7,7 +7,7 @@ import {
   isInterState,
   priceLine,
   stateCodeOf,
-  taxBreakup,
+  taxBreakup, taxableRateOf,
 } from './pricing.ts';
 
 const sku = { id: 'sku_1', code: 'SKU-1', name: 'Widget', sellingPrice: 100, taxId: 'tax_18' };
@@ -202,5 +202,27 @@ describe('taxBreakup across a state border', () => {
     // Which half absorbs the odd paisa is not specified — only that together
     // they come to the tax actually charged.
     expect(roundMoney(row!.cgst + row!.sgst)).toBe(row!.taxAmount);
+  });
+});
+
+describe('taxableRateOf', () => {
+  it('strips the tax out of an inclusive sticker price', () => {
+    // ₹2,100 a unit with 5% inside it is ₹2,000 before tax. Printing 2,100 in
+    // the RATE column beside a taxable amount gave a bill whose own
+    // multiplication did not work.
+    expect(taxableRateOf({ qty: 18, taxableValue: 36000 })).toBe(2000);
+  });
+
+  it('is the unit price when the tax was added on top', () => {
+    expect(taxableRateOf({ qty: 4, taxableValue: 1200 })).toBe(300);
+  });
+
+  it('rounds to paise, because that is what a bill prints', () => {
+    expect(taxableRateOf({ qty: 3, taxableValue: 100 })).toBe(33.33);
+  });
+
+  it('does not divide by zero', () => {
+    // A zero-quantity line should not put NaN on a customer's bill.
+    expect(taxableRateOf({ qty: 0, taxableValue: 0 })).toBe(0);
   });
 });

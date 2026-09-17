@@ -87,6 +87,18 @@ export function priceLine(input: PriceLineInput): SaleLine {
   };
 }
 
+/**
+ * The rate a GST invoice shows: what one unit costs before tax.
+ *
+ * Not `unitPrice`, which is that only under exclusive pricing — under inclusive
+ * pricing it is the sticker price with the tax inside it. Derived here rather
+ * than in each renderer so the screen at the counter and the paper the customer
+ * takes away cannot disagree about the same number.
+ */
+export function taxableRateOf(line: Pick<SaleLine, 'qty' | 'taxableValue'>): number {
+  return line.qty > 0 ? roundMoney(line.taxableValue / line.qty) : 0;
+}
+
 /** Sums priced lines and applies nearest-rupee round-off. */
 export function calcTotals(lines: readonly SaleLine[]): SaleTotals {
   const subTotal = roundMoney(lines.reduce((s, l) => s + l.unitPrice * l.qty, 0));

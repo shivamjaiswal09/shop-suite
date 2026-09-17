@@ -1,4 +1,4 @@
-import { amountInWords, roundMoney, stateCodeOf, stateNameOf } from '@shop/core';
+import { amountInWords, roundMoney, stateCodeOf, stateNameOf, taxableRateOf } from '@shop/core';
 
 /**
  * The GST invoice as an A4 page.
@@ -109,7 +109,7 @@ export function invoiceHtml(
       // before tax. `unitPrice` is not that whenever the tax is inclusive: it is
       // then the sticker price with GST inside it, so printing it beside a
       // taxable amount gave a bill whose own multiplication did not work.
-      const rate = line.qty > 0 ? roundMoney(line.taxableValue / line.qty) : 0;
+      const rate = taxableRateOf(line);
       // Derived from the printed rate rather than copied from the line, so a
       // customer multiplying the two columns on the page arrives at the figure
       // between them. The paise this can differ from the stored taxable value

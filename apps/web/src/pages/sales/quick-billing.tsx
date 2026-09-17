@@ -1,6 +1,7 @@
 import type { Invoice, Sku } from '@shop/core';
 import {
   billFromFor,
+  taxableRateOf,
   isInterState,
   missingRequiredFields,
   splitBillFields,
@@ -90,6 +91,18 @@ export function QuickBillingPage() {
     // became one thing.
     return (sku: { productId: string; name: string }) => byId.get(sku.productId) ?? sku.name;
   }, [products.data]);
+  /**
+   * The same name, reached from a priced line — which carries a `skuId` rather
+   * than the SKU itself. Falls back to the name snapshotted on the line, which
+   * is what the invoice will print anyway.
+   */
+  const productNameOfLine = useMemo(() => {
+    const skuById = new Map(cart.lines.map((l) => [l.sku.id, l.sku]));
+    return (line: { skuId: string; name: string }) => {
+      const sku = skuById.get(line.skuId);
+      return sku ? productNameOf(sku) : line.name;
+    };
+  }, [cart.lines, productNameOf]);
   // Active entities the company has that this store cannot bill under. Named
   // rather than silently dropped: "only one is coming" is otherwise
   // indistinguishable from "only one exists", and the fix is two clicks away in
@@ -657,10 +670,33 @@ export function QuickBillingPage() {
           <Card>
             <CardHeader title="Bill summary" />
             <CardBody className="space-y-3">
+              {/* Itemised the way the bill prints it: what each product comes
+                  to, then what the lot comes to. The figures and the words are
+                  the same ones on the paper, so a cashier reading this back is
+                  reading the customer's copy aloud. */}
+              {lines.length > 0 ? (
+                <div className="space-y-1.5 border-b border-border pb-3 text-sm">
+                  {lines.map((line) => (
+                    <div key={line.id} className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate">{productNameOfLine(line)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {fmtQty(line.qty)} × {money(taxableRateOf(line))}
+                        </p>
+                      </div>
+                      <span className="tabular shrink-0">{money(line.taxableValue)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
               <div className="space-y-1.5 text-sm">
-                <Row label="Sub total" value={money(totals.subTotal)} />
-                <Row label="Discount" value={`− ${money(totals.discountTotal)}`} muted />
-                <Row label="Taxable value" value={money(totals.taxableValue)} />
+                <Row label="Amount" value={money(totals.taxableValue)} />
+                {/* Only when there is one. A discount row reading zero on every
+                    bill is a row nobody reads. */}
+                {totals.discountTotal > 0 ? (
+                  <Row label="Discount" value={`− ${money(totals.discountTotal)}`} muted />
+                ) : null}
               </div>
 
               {taxRows.length > 0 ? (
@@ -708,10 +744,11 @@ export function QuickBillingPage() {
               ) : null}
 
               <div className="space-y-1.5 text-sm">
-                <Row label="Total tax" value={money(totals.taxTotal)} />
-                <Row label="Round off" value={money(totals.roundOff)} muted />
+                {/* The bill's own words, so the screen and the paper agree. */}
+                <Row label="Total" value={money(totals.taxableValue + totals.taxTotal)} />
+                <Row label="Round Off" value={money(totals.roundOff)} muted />
                 <div className="flex items-center justify-between border-t border-border pt-2 text-base font-semibold">
-                  <span>Grand total</span>
+                  <span>Amount Payable</span>
                   <span className="tabular">{money(totals.grandTotal)}</span>
                 </div>
               </div>
