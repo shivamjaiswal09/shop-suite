@@ -8,7 +8,7 @@ import {
   useUnitsOfMeasure,
   useUpdateSku,
 } from '@shop/state';
-import { Pencil, Plus } from 'lucide-react';
+import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -124,6 +124,7 @@ export function ProductsPage() {
                       </Badge>
                     </Td>
                     <Td className="text-right">
+                      <div className="flex justify-end gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -173,6 +174,37 @@ export function ProductsPage() {
                       >
                         <Pencil className="h-3.5 w-3.5" /> Edit
                       </Button>
+
+                      {/* Deliberately a flag, never a row removal. Invoices
+                          snapshot the code and name at billing time, so a past
+                          bill reads correctly either way — but the stock ledger
+                          references this SKU by id, and deleting the row would
+                          leave movements pointing at nothing. */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={sku.active ? 'text-destructive' : undefined}
+                        disabled={!actor || updateSku.isPending}
+                        onClick={() =>
+                          actor &&
+                          updateSku.mutate({
+                            id: sku.id,
+                            patch: { active: !sku.active },
+                            actorId: actor.id,
+                          })
+                        }
+                      >
+                        {sku.active ? (
+                          <>
+                            <Trash2 className="h-3.5 w-3.5" /> Delete
+                          </>
+                        ) : (
+                          <>
+                            <RotateCcw className="h-3.5 w-3.5" /> Restore
+                          </>
+                        )}
+                      </Button>
+                      </div>
                     </Td>
                   </tr>
                 );

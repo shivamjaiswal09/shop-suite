@@ -666,6 +666,63 @@ describe('brands and sub-brands', () => {
   });
 });
 
+describe('deactivating a SKU', () => {
+  it('leaves the invoices that already sold it untouched', async () => {
+    // The whole reason deletion is a flag: an invoice line snapshots the code
+    // and the name, and the stock ledger points at the SKU by id. Removing the
+    // row would leave both describing something that no longer exists.
+    const { repos, store, sku, counterId, actor } = await setup();
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 2 }],
+      createdBy: actor,
+    });
+    const before = await repos.stock.levelFor(sku.id, store.id);
+
+    await repos.products.updateSku(sku.id, { active: false }, actor);
+
+    const after = await repos.invoices.byId(invoice.id);
+    expect(after?.lines[0]?.skuCode).toBe(invoice.lines[0]!.skuCode);
+    expect(after?.lines[0]?.name).toBe(invoice.lines[0]!.name);
+    expect(after?.totals.grandTotal).toBe(invoice.totals.grandTotal);
+    // And the stock it consumed is still accounted for.
+    expect((await repos.stock.levelFor(sku.id, store.id)).onHand).toBe(before.onHand);
+  });
+
+  it('stops offering it at the counter, without losing it', async () => {
+    const { repos, sku, actor } = await setup();
+
+    await repos.products.updateSku(sku.id, { active: false }, actor);
+
+    expect((await repos.products.listSkus()).some((s) => s.id === sku.id)).toBe(false);
+    // Still there when asked for explicitly, which is what makes it restorable.
+    expect((await repos.products.listSkus(true)).some((s) => s.id === sku.id)).toBe(true);
+    expect((await repos.products.skuById(sku.id))?.active).toBe(false);
+  });
+
+  it('cannot be scanned or searched once deactivated', async () => {
+    const { repos, sku, actor } = await setup();
+    const barcode = sku.barcode!;
+
+    await repos.products.updateSku(sku.id, { active: false }, actor);
+
+    expect(await repos.products.skuByBarcode(barcode)).toBeUndefined();
+    expect((await repos.products.searchSkus(sku.code)).some((s) => s.id === sku.id)).toBe(false);
+  });
+
+  it('comes back exactly as it was', async () => {
+    const { repos, sku, actor } = await setup();
+    await repos.products.updateSku(sku.id, { active: false }, actor);
+
+    const restored = await repos.products.updateSku(sku.id, { active: true }, actor);
+
+    expect(restored.active).toBe(true);
+    expect(restored.code).toBe(sku.code);
+    expect(restored.sellingPrice).toBe(sku.sellingPrice);
+  });
+});
+
 describe('deleting a brand', () => {
   it('refuses while products still use it', async () => {
     // Blanking the brand on every product because someone deleted a row is the
