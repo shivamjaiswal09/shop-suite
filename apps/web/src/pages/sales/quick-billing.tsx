@@ -63,6 +63,10 @@ export function QuickBillingPage() {
   const activeFields = useMemo(() => billFields.data ?? [], [billFields.data]);
   const missing = missingRequiredFields(activeFields, fieldValues);
   const missingKeys = new Set(showMissing ? missing.map((f) => f.key) : []);
+  /** Label/value pairs actually filled in, in the order an admin configured. */
+  const enteredDetails = activeFields
+    .filter((f) => (fieldValues[f.key] ?? '').trim())
+    .map((f) => [f.label, fieldValues[f.key]!.trim()] as const);
 
   // Recognising a returning customer is the point of a customer-scope field:
   // the counter types a phone it has seen before and the rest fills itself.
@@ -450,15 +454,42 @@ export function QuickBillingPage() {
                 </div>
               </div>
 
-              <div>
-                <Label htmlFor="customer">Customer</Label>
-                <Input
-                  id="customer"
-                  placeholder="Walk-in Customer"
-                  value={cart.customerName ?? ''}
-                  onChange={(e) => cart.setCustomer({ name: e.target.value || undefined })}
-                />
-              </div>
+              {/* Once a name is among the configured bill fields, this box is
+                  asking for the same thing twice. It stays for a company that
+                  has configured nothing, which is still the default. */}
+              {activeFields.some((f) => f.key === 'name') ? null : (
+                <div>
+                  <Label htmlFor="customer">Customer</Label>
+                  <Input
+                    id="customer"
+                    placeholder="Walk-in Customer"
+                    value={cart.customerName ?? ''}
+                    onChange={(e) => cart.setCustomer({ name: e.target.value || undefined })}
+                  />
+                </div>
+              )}
+
+              {/* What was captured in the previous step, so the counter can
+                  check it against the customer before taking their money —
+                  the last moment it is cheap to correct. */}
+              {step === 'payment' && enteredDetails.length > 0 ? (
+                <div className="space-y-1.5 rounded-md border border-border p-3">
+                  {enteredDetails.map(([label, value]) => (
+                    <div key={label} className="flex justify-between gap-3 text-sm">
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="truncate font-medium">{value}</span>
+                    </div>
+                  ))}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-1 h-7 px-2 text-xs"
+                    onClick={() => setStep('customer')}
+                  >
+                    Edit details
+                  </Button>
+                </div>
+              ) : null}
             </CardBody>
           </Card>
 
