@@ -1,4 +1,4 @@
-import { amountInWords, stateCodeOf, stateNameOf } from '@shop/core';
+import { amountInWords, roundMoney, stateCodeOf, stateNameOf } from '@shop/core';
 
 /**
  * The GST invoice as an A4 page.
@@ -64,16 +64,29 @@ const shortDate = (iso: string): string => {
 };
 
 /**
- * Rows are padded to a fixed count so a three-line bill and a ten-line bill
+ * Rows are padded to a fixed count so a three-line bill and a six-line bill
  * print to the same depth — which is what makes a stack of them look uniform in
- * a file. Overflow past that simply continues onto a second page.
+ * a file, and keeps the fold between the two copies in the same place.
+ *
+ * Sized for half an A4 rather than a whole one: each copy now gets 140mm, not
+ * 281mm.
  */
-const MIN_ROWS = 8;
+const MIN_ROWS = 5;
+
+/**
+ * How many lines fit in half an A4 alongside the header, totals, terms and the
+ * signatory — measured from a rendered sheet, not guessed.
+ *
+ * A bill longer than this gets a full page per copy instead of sharing one.
+ * Two copies still print; they just take two sheets rather than one.
+ */
+const MAX_LINES_PER_HALF = 8;
 
 export function invoiceHtml(
   invoice: InvoicePage,
   entity: Entity | null,
-  copy: 'original' | 'duplicate' | 'triplicate',
+  /** Top half first, bottom half second. */
+  copies: readonly Copy[] = ['original', 'duplicate'],
 ): string {
   // The snapshot wins over the live entity. A tax invoice asserts who issued
   // it on the day it was issued; if the shop is renamed or its GSTIN changes
@@ -86,11 +99,23 @@ export function invoiceHtml(
   const buyerState = stateCodeOf(invoice.customerGstin);
   const interState = invoice.interState;
 
+  const twoUp = invoice.lines.length <= MAX_LINES_PER_HALF;
   const blankRows = Math.max(0, MIN_ROWS - invoice.lines.length);
   const taxColumns = interState ? 1 : 2;
 
   const lineRows = invoice.lines
     .map((line, index) => {
+      // The rate a GST invoice prints is the taxable rate — what one unit costs
+      // before tax. `unitPrice` is not that whenever the tax is inclusive: it is
+      // then the sticker price with GST inside it, so printing it beside a
+      // taxable amount gave a bill whose own multiplication did not work.
+      const rate = line.qty > 0 ? roundMoney(line.taxableValue / line.qty) : 0;
+      // Derived from the printed rate rather than copied from the line, so a
+      // customer multiplying the two columns on the page arrives at the figure
+      // between them. The paise this can differ from the stored taxable value
+      // are never summed on the page — the totals block prints tax-inclusive
+      // figures — so nothing on the bill disagrees with anything else.
+      const amount = roundMoney(rate * line.qty);
       const half = line.taxRate / 2;
       const taxCells = interState
         ? `<td class="c">${line.taxRate}%</td><td class="r">${money(line.taxAmount)}</td>`
@@ -101,8 +126,8 @@ export function invoiceHtml(
         <td class="c">${index + 1}</td>
         <td>${esc(line.name)}</td>
         <td class="c">${qty(line.qty)}</td>
-        <td class="r">${money(line.unitPrice)}</td>
-        <td class="r">${money(line.taxableValue)}</td>
+        <td class="r">${money(rate)}</td>
+        <td class="r">${money(amount)}</td>
         ${taxCells}
         <td class="r">${money(line.lineTotal)}</td>
       </tr>`;
@@ -114,42 +139,8 @@ export function invoiceHtml(
     () => `<tr class="blank">${'<td></td>'.repeat(7 + taxColumns * 2)}</tr>`,
   ).join('');
 
-  return `<style>
-  * { box-sizing: border-box; }
-  body { font-family: "Times New Roman", Times, serif; font-size: 11px; margin: 0; color: #000; }
-  .copy { font-style: italic; margin-bottom: 2px; }
-  table { border-collapse: collapse; width: 100%; }
-  .sheet { border: 1.5px solid #000; }
-  .head { display: flex; border-bottom: 1.5px solid #000; }
-  .head > div { padding: 6px 8px; }
-  .seller { flex: 1.35; border-right: 1.5px solid #000; }
-  .title { flex: 0.8; text-align: center; font-weight: bold; font-size: 15px;
-           letter-spacing: 0.5px; text-decoration: underline; padding-top: 14px;
-           border-right: 1.5px solid #000; }
-  .buyer { flex: 1; }
-  .name { font-size: 20px; font-weight: bold; color: #1a3d8f; letter-spacing: 0.5px; }
-  .buyer .name { font-size: 14px; color: #000; }
-  .kv { white-space: pre-line; }
-  th, td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; }
-  thead th { text-align: center; font-weight: bold; }
-  .c { text-align: center; }
-  .r { text-align: right; }
-  .blank td { height: 16px; }
-  tfoot td { border: none; }
-  .totals td { padding: 2px 6px; }
-  .foot { display: flex; border-top: 1.5px solid #000; }
-  .terms { flex: 1; padding: 6px 8px; border-right: 1.5px solid #000; }
-  .sign { width: 34%; padding: 6px 8px; text-align: center; }
-  .sign .for { text-align: right; font-weight: bold; }
-  .sig-line { margin-top: 34px; border-top: 1px solid #000; display: inline-block;
-              padding-top: 2px; min-width: 60%; }
-  .bank { padding: 4px 8px; border-top: 1.5px solid #000; }
-  /* Repeat the column headings when a long bill continues onto another page. */
-  thead { display: table-header-group; }
-  tr { page-break-inside: avoid; }
-</style>
-
-<div class="copy">${copy.charAt(0).toUpperCase() + copy.slice(1)}</div>
+  // One invoice, rendered as a fragment so the sheet below can hold two of them.
+  const copyHtml = (copy: Copy): string => `<div class="copy">${label(copy)}</div>
 
 <div class="sheet">
   <div class="head">
@@ -217,6 +208,66 @@ export function invoiceHtml(
       <div class="sig-line">(Authorised Signatory)</div>
     </div>
   </div>
-</div>
+</div>`;
+
+  return `<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Times New Roman", Times, serif; font-size: 11px; margin: 0; color: #000; }
+  .copy { font-style: italic; margin-bottom: 2px; }
+  table { border-collapse: collapse; width: 100%; }
+  .sheet { border: 1.5px solid #000; }
+  .head { display: flex; border-bottom: 1.5px solid #000; }
+  .head > div { padding: 6px 8px; }
+  .seller { flex: 1.35; border-right: 1.5px solid #000; }
+  .title { flex: 0.8; text-align: center; font-weight: bold; font-size: 15px;
+           letter-spacing: 0.5px; text-decoration: underline; padding-top: 14px;
+           border-right: 1.5px solid #000; }
+  .buyer { flex: 1; }
+  .name { font-size: 20px; font-weight: bold; color: #1a3d8f; letter-spacing: 0.5px; }
+  .buyer .name { font-size: 14px; color: #000; }
+  .kv { white-space: pre-line; }
+  th, td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; }
+  thead th { text-align: center; font-weight: bold; }
+  .c { text-align: center; }
+  .r { text-align: right; }
+  .blank td { height: 16px; }
+  tfoot td { border: none; }
+  .totals td { padding: 2px 6px; }
+  .foot { display: flex; border-top: 1.5px solid #000; }
+  .terms { flex: 1; padding: 6px 8px; border-right: 1.5px solid #000; }
+  .sign { width: 34%; padding: 6px 8px; text-align: center; }
+  .sign .for { text-align: right; font-weight: bold; }
+  .sig-line { margin-top: 34px; border-top: 1px solid #000; display: inline-block;
+              padding-top: 2px; min-width: 60%; }
+  .bank { padding: 4px 8px; border-top: 1.5px solid #000; }
+  /* Repeat the column headings when a long bill continues onto another page. */
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  /* Two copies to an A4 sheet: the shop keeps one, the customer takes the
+     other, and nobody has to print twice or cut a second sheet down. Each half
+     is a fixed fraction of the printable height rather than being left to flow,
+     so the fold is always in the same place across a stack of bills. */
+  .pair { height: 281mm; display: flex; flex-direction: column; }
+  .half { height: 50%; padding-bottom: 4mm; }
+  /* The fold line. Printed rather than implied, because a bill cut freehand
+     down the middle of a table looks like a mistake. */
+  .half:first-child { border-bottom: 1px dashed #999; }
+  /* A bill with too many lines for half a page takes a whole one per copy.
+     Squeezing it would clip the terms and the signatory off the bottom, and a
+     bill nobody signed is not a document. */
+  .solo { height: 281mm; }
+  .solo + .solo { page-break-before: always; }
+</style>
+
+${
+  twoUp
+    ? `<div class="pair">${copies.map((copy) => `<div class="half">${copyHtml(copy)}</div>`).join('')}</div>`
+    : copies.map((copy) => `<div class="solo">${copyHtml(copy)}</div>`).join('')
+}
 `;
 }
+
+/** Which of the three GST copies a half-sheet is. */
+export type Copy = 'original' | 'duplicate' | 'triplicate';
+
+const label = (copy: Copy): string => copy.charAt(0).toUpperCase() + copy.slice(1);

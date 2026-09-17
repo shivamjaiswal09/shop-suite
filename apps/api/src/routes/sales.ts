@@ -999,9 +999,25 @@ export async function registerSalesRoutes(app: FastifyInstance) {
     const query = z
       .object({
         companyId: z.string().optional(),
-        copy: z.enum(['original', 'duplicate', 'triplicate']).default('original'),
+        /**
+         * Which copies the sheet carries, top half first. Defaults to the pair
+         * a counter actually needs: one for the customer, one for the file.
+         * Repeatable, so `?copy=original&copy=triplicate` is a valid sheet.
+         */
+        copy: z
+          .union([
+            z.enum(['original', 'duplicate', 'triplicate']),
+            z.array(z.enum(['original', 'duplicate', 'triplicate'])),
+          ])
+          .optional(),
       })
       .parse(request.query);
+    const copies =
+      query.copy === undefined
+        ? (['original', 'duplicate'] as const)
+        : Array.isArray(query.copy)
+          ? query.copy
+          : [query.copy];
     const { companyId } = requireCompany(await principal(request), query.companyId);
 
     const row = await prisma.invoice.findFirst({
@@ -1052,7 +1068,7 @@ export async function registerSalesRoutes(app: FastifyInstance) {
             : undefined,
         },
         entity,
-        query.copy,
+        copies,
       ),
     );
     reply

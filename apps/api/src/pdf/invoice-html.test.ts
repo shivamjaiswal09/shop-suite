@@ -41,7 +41,7 @@ const invoice = {
 
 describe('invoiceHtml', () => {
   it('prints what makes the document a tax invoice', () => {
-    const html = invoiceHtml(invoice, entity, 'original');
+    const html = invoiceHtml(invoice, entity, ['original']);
     expect(html).toContain('INV-ST-JYN-000042');
     expect(html).toContain('08ARCPM6091L1ZC'); // supplier
     expect(html).toContain('08ABEFA1194J1ZE'); // recipient
@@ -53,13 +53,24 @@ describe('invoiceHtml', () => {
   });
 
   it('names the copy, because three of these go to three different places', () => {
-    expect(invoiceHtml(invoice, entity, 'original')).toContain('Original');
-    expect(invoiceHtml(invoice, entity, 'duplicate')).toContain('Duplicate');
-    expect(invoiceHtml(invoice, entity, 'triplicate')).toContain('Triplicate');
+    expect(invoiceHtml(invoice, entity, ['original'])).toContain('Original');
+    expect(invoiceHtml(invoice, entity, ['duplicate'])).toContain('Duplicate');
+    expect(invoiceHtml(invoice, entity, ['triplicate'])).toContain('Triplicate');
+  });
+
+  it('puts two copies on one sheet, the customer\'s above the shop\'s', () => {
+    // The default, because this is what a counter needs: one to hand over and
+    // one to keep, off a single sheet of A4.
+    const html = invoiceHtml(invoice, entity);
+    expect(html.match(/class="half"/g)?.length).toBe(2);
+    expect(html.indexOf('Original')).toBeLessThan(html.indexOf('Duplicate'));
+    // Both halves carry the whole bill — a copy missing its total is not a copy.
+    expect(html.match(/Amount Payable/g)?.length).toBe(2);
+    expect(html.match(/INV-ST-JYN-000042/g)?.length).toBe(2);
   });
 
   it('splits the tax into CGST and SGST within the state', () => {
-    const html = invoiceHtml(invoice, entity, 'original');
+    const html = invoiceHtml(invoice, entity, ['original']);
     expect(html).toContain('CGST');
     expect(html).toContain('SGST');
     expect(html).not.toContain('IGST');
@@ -72,7 +83,7 @@ describe('invoiceHtml', () => {
     const html = invoiceHtml(
       { ...invoice, interState: true, customerGstin: '27ABEFA1194J1ZE' },
       entity,
-      'original',
+      ['original'],
     );
     expect(html).toContain('IGST');
     expect(html).not.toContain('CGST');
@@ -82,13 +93,13 @@ describe('invoiceHtml', () => {
   });
 
   it('pads a short bill so a stack of them files to the same depth', () => {
-    const short = invoiceHtml({ ...invoice, lines: [line] }, entity, 'original');
-    expect(short.match(/class="blank"/g)?.length).toBe(7);
+    const short = invoiceHtml({ ...invoice, lines: [line] }, entity, ['original']);
+    expect(short.match(/class="blank"/g)?.length).toBe(4);
 
     const long = invoiceHtml(
       { ...invoice, lines: Array.from({ length: 40 }, () => line) },
       entity,
-      'original',
+      ['original'],
     );
     expect(long).not.toContain('class="blank"');
   });
@@ -98,7 +109,7 @@ describe('invoiceHtml', () => {
     const long = invoiceHtml(
       { ...invoice, lines: Array.from({ length: 40 }, () => line) },
       entity,
-      'original',
+      ['original'],
     );
     expect(long.match(/Amount Payable/g)?.length).toBe(1);
     expect(long.match(/Authorised Signatory/g)?.length).toBe(1);
@@ -109,7 +120,7 @@ describe('invoiceHtml', () => {
     const html = invoiceHtml(
       { ...invoice, lines: [{ ...line, hsnCode: undefined }] },
       entity,
-      'original',
+      ['original'],
     );
     expect(html).not.toContain('undefined');
   });
@@ -118,7 +129,7 @@ describe('invoiceHtml', () => {
     const html = invoiceHtml(
       { ...invoice, customerName: 'Sharma & Sons <script>alert(1)</script>' },
       entity,
-      'original',
+      ['original'],
     );
     expect(html).toContain('Sharma &amp; Sons');
     expect(html).not.toContain('<script>alert(1)</script>');
@@ -126,7 +137,7 @@ describe('invoiceHtml', () => {
 
   it('still prints when there is no billing entity configured', () => {
     // A shop that has not filled in Masters yet should get a bill, not a crash.
-    const html = invoiceHtml({ ...invoice, customerGstin: undefined }, null, 'original');
+    const html = invoiceHtml({ ...invoice, customerGstin: undefined }, null, ['original']);
     expect(html).toContain('INV-ST-JYN-000042');
     expect(html).not.toContain('undefined');
   });
@@ -140,14 +151,14 @@ describe('invoiceHtml', () => {
         billFrom: { legalName: 'OLD TRADERS', gstin: '08OLD0000001ZC', phones: ['9000000000'] },
       },
       { ...entity, legalName: 'RENAMED TRADERS' },
-      'original',
+      ['original'],
     );
     expect(html).toContain('OLD TRADERS');
     expect(html).not.toContain('RENAMED TRADERS');
   });
 
   it('falls back to the entity for a bill raised before Bill From existed', () => {
-    const html = invoiceHtml(invoice, entity, 'original');
+    const html = invoiceHtml(invoice, entity, ['original']);
     expect(html).toContain('S.M. TRADERS');
     expect(html).toContain('9414268807');
   });
@@ -159,10 +170,54 @@ describe('invoiceHtml', () => {
         billFrom: { legalName: 'OLD TRADERS', gstin: '08OLD0000001ZC', phones: ['9000000000'] },
       },
       null,
-      'original',
+      ['original'],
     );
     expect(html).toContain('OLD TRADERS');
     expect(html).toContain('08OLD0000001ZC');
     expect(html).toContain('9000000000');
+  });
+
+  it('prints the rate before tax, and the amount as quantity times it', () => {
+    // The line below is priced inclusive: ₹2,100 a unit with 5% inside it. The
+    // bill must show 2,000.00 and 36,000.00, not the sticker price beside a
+    // taxable amount it does not multiply out to.
+    const html = invoiceHtml(
+      {
+        ...invoice,
+        lines: [
+          {
+            name: 'Tyre Ceat 3.00-17',
+            hsnCode: '4011',
+            qty: 18,
+            unitPrice: 2100,
+            taxRate: 5,
+            taxableValue: 36000,
+            taxAmount: 1800,
+            lineTotal: 37800,
+          },
+        ],
+      },
+      entity,
+      ['original'],
+    );
+    expect(html).toContain('2,000.00');
+    expect(html).toContain('36,000.00');
+    // The inclusive unit price has no column on a GST invoice.
+    expect(html).not.toContain('2,100.00');
+  });
+
+  it('gives each copy a whole page when the bill is too long to share one', () => {
+    // Squeezing a long bill into half a page clipped the terms and the
+    // signatory off the bottom, which is worse than spending a second sheet.
+    const long = { ...invoice, lines: Array.from({ length: 12 }, () => line) };
+    const html = invoiceHtml(long, entity);
+    expect(html).not.toContain('class="half"');
+    expect(html.match(/class="solo"/g)?.length).toBe(2);
+    expect(html.match(/Authorised Signatory/g)?.length).toBe(2);
+  });
+
+  it('keeps a bill at the limit on one sheet', () => {
+    const atLimit = { ...invoice, lines: Array.from({ length: 8 }, () => line) };
+    expect(invoiceHtml(atLimit, entity).match(/class="half"/g)?.length).toBe(2);
   });
 });
