@@ -15,6 +15,8 @@ export interface SessionState {
 
   signIn: (payload: { user: User; company: Company | null; store: StockLocation | null }) => void;
   signOut: () => void;
+  /** Replaces the signed-in user in place — after a password change, say. */
+  setUser: (user: User) => void;
   setStore: (store: StockLocation) => void;
   toggleTheme: () => void;
   setTheme: (theme: 'light' | 'dark') => void;
@@ -33,12 +35,23 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   signIn: ({ user, company, store }) => set({ user, company, store }),
   signOut: () => set({ user: null, company: null, store: null }),
+  setUser: (user) => set({ user }),
   setStore: (store) => set({ store }),
   toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
   setTheme: (theme) => set({ theme }),
 }));
 
 export const useIsAuthenticated = () => useSessionStore((s) => s.user !== null);
+
+/**
+ * Whether the app must stop at the change-password screen before anything else.
+ *
+ * True only when somebody else chose the current password — an admin creating
+ * or resetting the account. Gating on this is what makes a handed-over
+ * credential temporary rather than permanent.
+ */
+export const useMustChangePassword = () =>
+  useSessionStore((s) => s.user?.mustChangePassword === true);
 
 /** A super admin administers the platform; they never sell, so they have no store. */
 export const useIsSuperAdmin = () => useSessionStore((s) => s.user?.isSuperAdmin === true);

@@ -327,6 +327,19 @@ export function useUpdateRole() {
   });
 }
 
+/**
+ * Ends every session on a role, so a revoked permission applies immediately
+ * rather than at the holders' next sign-in.
+ */
+export function useSignOutRole() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => repos.users.signOutRole(id),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: qk.audit }),
+  });
+}
+
 export function useDeleteRole() {
   const repos = useRepositories();
   const queryClient = useQueryClient();

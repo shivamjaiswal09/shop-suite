@@ -620,6 +620,12 @@ export interface UserRepository {
   deleteRole(id: string, reassignToRoleId: string, actorId: string): Promise<void>;
   /** How many users hold each role. Drives the editor's reassignment prompt. */
   roleUserCounts(): Promise<Record<string, number>>;
+  /**
+   * Signs out everyone holding this role, so a permission just revoked takes
+   * effect now rather than whenever they next sign in. Returns how many
+   * sessions ended. The caller's own session survives.
+   */
+  signOutRole(id: string): Promise<{ signedOut: number }>;
 }
 
 export interface MasterRepository {

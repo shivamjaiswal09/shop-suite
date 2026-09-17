@@ -118,6 +118,8 @@ export function createIdentityRepositories(fetcher: Fetcher): {
 
     updateRole: (id, patch: RolePatch) => fetcher.patch<Role>(`/roles/${id}`, patch),
 
+    signOutRole: (id) => fetcher.post<{ signedOut: number }>(`/roles/${id}/sign-out`),
+
     deleteRole: async (id, reassignToRoleId) => {
       // Sent as a body rather than a query string: it is not a filter, it is
       // where every user holding this role ends up, and the server refuses

@@ -4,7 +4,7 @@ import {
   useSessionStore,
   useSkus,
 } from '@shop/state';
-import { FileCheck2 } from 'lucide-react';
+import { FileCheck2, Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,7 @@ import { Card, CardHeader } from '@/components/ui/card';
 import { Stat } from '@/components/ui/stat';
 import { EmptyRow, Table, Td, Th } from '@/components/ui/table';
 import { money, qty as fmtQty, shortDateTime } from '@/lib/utils';
+import { NewOrderDialog } from './new-order-dialog';
 
 const statusTone = {
   draft: 'neutral',
@@ -34,6 +35,7 @@ export function OrdersPage() {
   const skus = useSkus(true);
   const convert = useConvertOrderToInvoice();
   const [error, setError] = useState<string | null>(null);
+  const [raising, setRaising] = useState(false);
 
   const skuById = useMemo(() => new Map((skus.data ?? []).map((s) => [s.id, s])), [skus.data]);
   const rows = orders.data ?? [];
@@ -58,6 +60,11 @@ export function OrdersPage() {
       <PageHeader
         title="Orders"
         description="Reserved stock awaiting collection. Reserving holds it back from the counter without selling it."
+        actions={
+          <Button onClick={() => setRaising(true)}>
+            <Plus className="h-4 w-4" /> New order
+          </Button>
+        }
       />
 
       <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -129,6 +136,8 @@ export function OrdersPage() {
       </Card>
 
       {error ? <p className="mt-3 text-xs text-destructive">{error}</p> : null}
+
+      <NewOrderDialog open={raising} onClose={() => setRaising(false)} />
     </>
   );
 }

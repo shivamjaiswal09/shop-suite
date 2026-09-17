@@ -190,6 +190,20 @@ model Session {
   createdAt DateTime @default(now())
   userAgent String?
 
+  /// The role's permissions as they stood when this session was created.
+  ///
+  /// Authorisation is answered from this snapshot rather than from the role,
+  /// so editing a role does not change what somebody already signed in can do
+  /// — their menu stays put mid-shift instead of rearranging under them.
+  ///
+  /// The cost is that a revocation does not bite until they sign in again, up
+  /// to seven days. `POST /roles/:id/sign-out` exists for when that is too
+  /// long: it deletes the sessions and the next request re-reads the role.
+  ///
+  /// Empty for sessions created before this column existed; `principalFrom`
+  /// falls back to the role for those, so nobody is logged out by the deploy.
+  permissions String[]
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])

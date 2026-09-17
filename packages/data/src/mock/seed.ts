@@ -260,8 +260,8 @@ export function createSeededStore(): InMemoryStore {
   store.roles = [ownerRole, cashierRole];
 
   store.users = [
-    { id: store.nextId('usr'), companyId, name: 'Ravi Kumar', email: 'owner@nandiretail.in', phone: '+91 98450 11111', roleId: ownerRole.id, storeIds: [], locationIds: [], active: true, isSuperAdmin: false, createdAt: SEED_AT },
-    { id: store.nextId('usr'), companyId, name: 'Priya Nair', email: 'cashier@nandiretail.in', phone: '+91 98450 22222', roleId: cashierRole.id, storeIds: [storeA.id], locationIds: [storeA.id], active: true, isSuperAdmin: false, createdAt: SEED_AT },
+    { id: store.nextId('usr'), companyId, name: 'Ravi Kumar', email: 'owner@nandiretail.in', phone: '+91 98450 11111', roleId: ownerRole.id, storeIds: [], locationIds: [], active: true, mustChangePassword: false, isSuperAdmin: false, createdAt: SEED_AT },
+    { id: store.nextId('usr'), companyId, name: 'Priya Nair', email: 'cashier@nandiretail.in', phone: '+91 98450 22222', roleId: cashierRole.id, storeIds: [storeA.id], locationIds: [storeA.id], active: true, mustChangePassword: false, isSuperAdmin: false, createdAt: SEED_AT },
   ];
 
   /* ------------------------------------------------------------- masters */

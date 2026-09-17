@@ -80,8 +80,24 @@ import type {
 import { createSeededStore } from './seed';
 import { InMemoryStore } from './store';
 
-/** Small delay so the UI exercises real loading states. */
-const LATENCY_MS = 30;
+/**
+ * Small delay so the UI exercises real loading states — a mock that resolves
+ * synchronously lets a screen ship without ever rendering its spinner.
+ *
+ * Zero under test. Every repository call pays it, so a suite of ~600 of them
+ * spends nineteen seconds doing nothing but waiting on real timers, and on a
+ * loaded machine those callbacks arrive late enough to push individual tests
+ * past vitest's timeout. The tests are not checking that the mock is slow, so
+ * the latency is all cost and no signal there.
+ *
+ * Read off `globalThis` rather than as a bare `process`, because this module is
+ * typechecked by packages that have no node types and bundled for the browser
+ * and React Native, where there is no process at all.
+ */
+const LATENCY_MS = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+  .process?.env?.VITEST
+  ? 0
+  : 30;
 const tick = <T>(value: T): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), LATENCY_MS));
 
@@ -392,6 +408,13 @@ export class MockRepositories implements Repositories {
         if (user.roleId in counts) counts[user.roleId] += 1;
       }
       return tick(counts);
+    },
+
+    signOutRole: async () => {
+      // The mock has no sessions to end — it holds one signed-in user id in
+      // memory and no credential at all. Answering zero is honest: nothing was
+      // signed out, because nothing here can be.
+      return tick({ signedOut: 0 });
     },
 
     createRole: async (input, actorId) => {

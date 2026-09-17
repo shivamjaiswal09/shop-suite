@@ -127,6 +127,13 @@ export const userSchema = z.object({
   storeIds: z.array(idSchema),
   locationIds: z.array(idSchema),
   active: z.boolean().default(true),
+  /**
+   * Set when somebody else chose the password — an admin creating the account,
+   * or resetting it. The credential is a handover, not a secret the holder
+   * picked, so the app stops at a change-password screen before letting them
+   * anywhere else. Cleared the moment they choose their own.
+   */
+  mustChangePassword: z.boolean().default(false),
   /** Sits outside every company; the only principal that may act across them. */
   isSuperAdmin: z.boolean().default(false),
   createdAt: timestampSchema,

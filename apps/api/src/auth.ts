@@ -74,7 +74,22 @@ export async function createSession(reply: FastifyReply, userId: string, userAge
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 86_400_000);
 
-  await prisma.session.create({ data: { id: tokenDigest(token), userId, expiresAt, userAgent } });
+  // Snapshot the permissions the user signs in with. Read once here rather than
+  // on every request, which is also one fewer join per authenticated call.
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { role: true },
+  });
+
+  await prisma.session.create({
+    data: {
+      id: tokenDigest(token),
+      userId,
+      expiresAt,
+      userAgent,
+      permissions: normalizeRolePermissions(user?.role?.permissions ?? []),
+    },
+  });
   reply.setCookie(COOKIE, token, {
     httpOnly: true,
     // The SPA and /api are served from one origin in both environments, so no
@@ -121,17 +136,22 @@ export async function principalFrom(request: FastifyRequest): Promise<Principal 
   if (!user.active) return null;
   if (user.company && !user.company.active) return null;
 
+  // Answered from the snapshot taken at sign-in, not from the role as it stands
+  // now: a role edited mid-shift must not rearrange the menu under the person
+  // using it. A session predating this column has an empty array and falls back
+  // to the live role, so deploying this does not sign anybody out.
+  //
+  // Still normalised on the way out. The stored list records what an admin
+  // chose; the implications of those choices are a rule, and a rule that
+  // changes must apply to lists already saved rather than waiting for each one
+  // to be re-saved.
+  const snapshot = session.permissions.length ? session.permissions : user.role?.permissions;
+
   return {
     userId: user.id,
     companyId: user.companyId,
     isSuperAdmin: user.isSuperAdmin,
-    // Normalised on the way out, not just on the way in. The stored list is a
-    // record of what an admin chose; the implications of those choices are a
-    // rule, and a rule that changes must apply to roles already saved rather
-    // than waiting for someone to re-save each one.
-    permissions: user.isSuperAdmin
-      ? ['*']
-      : normalizeRolePermissions(user.role?.permissions ?? []),
+    permissions: user.isSuperAdmin ? ['*'] : normalizeRolePermissions(snapshot ?? []),
     name: user.name,
     email: user.email,
   };

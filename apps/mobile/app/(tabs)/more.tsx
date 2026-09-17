@@ -5,10 +5,12 @@ import {
   useCompany,
   useCurrentRole,
   useLogout,
+  useMustChangePassword,
   usePermissions,
   useSessionStore,
 } from '@shop/state';
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import {
   Badge,
@@ -22,6 +24,7 @@ import {
   SectionTitle,
   type IconName,
 } from '@/components/ui';
+import { ChangePasswordSheet } from '@/components/change-password-sheet';
 import { fontSize, spacing, useTheme, useThemeMode } from '@/lib/theme';
 
 /**
@@ -84,6 +87,10 @@ export default function MoreScreen() {
   const role = useCurrentRole();
   const canBill = useCan('sales.bill');
   const permissions = usePermissions();
+  const [changingPassword, setChangingPassword] = useState(false);
+  // A password an administrator chose is a handover, not a secret: the sheet
+  // opens itself and will not dismiss until they pick their own.
+  const mustChange = useMustChangePassword();
   const webItems = ON_WEB.filter((item) => permissions.has(item.permission));
 
   const signOut = () => {
@@ -182,6 +189,29 @@ export default function MoreScreen() {
       ) : null}
 
       <Card>
+        <CardHeader title="Account" />
+        <CardBody>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Change password"
+            onPress={() => setChangingPassword(true)}
+            style={({ pressed }) => [styles.accountRow, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="key-outline" size={20} color={colors.mutedForeground} />
+            <View style={styles.accountText}>
+              <Text style={[styles.accountLabel, { color: colors.foreground }]}>
+                Change password
+              </Text>
+              <Text style={[styles.accountDetail, { color: colors.mutedForeground }]}>
+                Signs out every other device
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+          </Pressable>
+        </CardBody>
+      </Card>
+
+      <Card>
         <CardHeader title="Session" />
         <CardBody>
           {/* Read-only: the header switcher is the one place a store changes,
@@ -193,6 +223,12 @@ export default function MoreScreen() {
       </Card>
 
       <Button label="Sign out" icon="log-out-outline" variant="danger" size="lg" block onPress={signOut} />
+
+      <ChangePasswordSheet
+        visible={mustChange || changingPassword}
+        forced={mustChange}
+        onClose={() => setChangingPassword(false)}
+      />
     </ScrollScreen>
   );
 }
@@ -205,6 +241,17 @@ const initials = (name: string | undefined) =>
     .join('');
 
 const styles = StyleSheet.create({
+  // 48dp minimum, like every other tappable thing in this app.
+  accountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 48,
+    paddingVertical: spacing.sm,
+  },
+  accountText: { flex: 1 },
+  accountLabel: { fontSize: fontSize.base, fontWeight: '600' },
+  accountDetail: { fontSize: fontSize.sm, marginTop: 1 },
   profile: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   avatar: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
   initials: { fontSize: fontSize.lg, fontWeight: '700' },

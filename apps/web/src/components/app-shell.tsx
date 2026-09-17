@@ -1,9 +1,10 @@
-import { useLogout, usePermissions, useSessionStore } from '@shop/state';
-import { LogOut, Menu, Moon, Smartphone, Store, Sun } from 'lucide-react';
+import { useLogout, useMustChangePassword, usePermissions, useSessionStore } from '@shop/state';
+import { KeyRound, LogOut, Menu, Moon, Smartphone, Store, Sun } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { ErrorBoundary } from './error-boundary';
 import { MobileNav } from './mobile-nav';
+import { ChangePasswordDialog } from './change-password-dialog';
 import { NavList } from './nav-list';
 import { StoreSwitcher } from './store-switcher';
 import { Button } from './ui/button';
@@ -17,6 +18,10 @@ export function AppShell() {
   const toggleTheme = useSessionStore((s) => s.toggleTheme);
   const logout = useLogout();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  // An administrator chose the current password, so it is a handover rather
+  // than a secret. Nothing else in the app is reachable until they replace it.
+  const mustChange = useMustChangePassword();
 
   // A route change must close the drawer even when it was not a tap inside it
   // that caused one — a browser back gesture, or a redirect after an action.
@@ -66,9 +71,20 @@ export function AppShell() {
               <p className="truncate text-xs font-medium">{user?.name}</p>
               <p className="truncate text-[11px] text-muted-foreground">{user?.email}</p>
             </div>
-            <Button variant="ghost" size="icon" title="Sign out" onClick={logout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
+            <div className="flex shrink-0 items-center">
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Change password"
+                aria-label="Change password"
+                onClick={() => setChangingPassword(true)}
+              >
+                <KeyRound className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" title="Sign out" onClick={logout}>
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </div>
       </aside>
@@ -100,6 +116,12 @@ export function AppShell() {
             <Outlet />
           </ErrorBoundary>
         </main>
+
+        <ChangePasswordDialog
+          open={mustChange || changingPassword}
+          forced={mustChange}
+          onClose={() => setChangingPassword(false)}
+        />
       </div>
     </div>
   );

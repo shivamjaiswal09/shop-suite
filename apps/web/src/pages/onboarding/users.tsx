@@ -6,6 +6,7 @@ import {
   useRoleUserCounts,
   useRoles,
   useSessionStore,
+  useSignOutRole,
   useUpdateRole,
   useUpdateUser,
   useUsers,
@@ -21,6 +22,7 @@ import { EmptyRow, Table, Td, Th } from '@/components/ui/table';
 import { activeField, EditDialog, type EditTarget } from './edit-dialog';
 import { DeleteRoleDialog, type DeleteRoleTarget } from './delete-role-dialog';
 import { duplicateOf, RoleEditor, roleDraft, type RoleDraft } from './role-editor';
+import { RevokedSessionsPrompt } from './revoked-sessions-prompt';
 import { RecordForm, type FormValues } from './record-form';
 
 const ALL_STORES = '__all__';
@@ -36,6 +38,13 @@ export function OnboardUsersPage() {
   const createRole = useCreateRole();
   const updateRole = useUpdateRole();
   const deleteRole = useDeleteRole();
+  const signOutRole = useSignOutRole();
+  // Offered only after a save that took something away. Permissions now apply
+  // at next sign-in, so a revocation sits dormant until then — which is fine
+  // for a tidy-up and wrong for the reason you usually revoke something.
+  const [revoked, setRevoked] = useState<{ roleId: string; name: string; lost: string[] } | null>(
+    null,
+  );
   const [editing, setEditing] = useState<EditTarget | null>(null);
   const [roleDraftState, setRoleDraftState] = useState<RoleDraft | null>(null);
   const [roleError, setRoleError] = useState<string>();
@@ -274,11 +283,14 @@ export function OnboardUsersPage() {
           setRoleError(undefined);
           try {
             if (draft.id) {
+              const before = roles.data?.find((r) => r.id === draft.id)?.permissions ?? [];
               await updateRole.mutateAsync({
                 id: draft.id,
                 actorId: actor.id,
                 patch: { name: draft.name, permissions: draft.permissions },
               });
+              const lost = before.filter((p) => !draft.permissions.includes(p));
+              if (lost.length) setRevoked({ roleId: draft.id, name: draft.name, lost });
             } else {
               await createRole.mutateAsync({
                 input: { name: draft.name, permissions: draft.permissions },
@@ -292,6 +304,16 @@ export function OnboardUsersPage() {
             // already taken — and closing the dialog would lose the edit too.
             setRoleError(error instanceof Error ? error.message : 'Could not save the role');
           }
+        }}
+      />
+
+      <RevokedSessionsPrompt
+        target={revoked}
+        pending={signOutRole.isPending}
+        onClose={() => setRevoked(null)}
+        onSignOut={async (roleId) => {
+          await signOutRole.mutateAsync(roleId);
+          setRevoked(null);
         }}
       />
 

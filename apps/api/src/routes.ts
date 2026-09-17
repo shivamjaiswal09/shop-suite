@@ -277,6 +277,8 @@ export async function registerRoutes(app: FastifyInstance) {
           email,
           phone: body.admin.phone,
           passwordHash,
+          // Handed over by the super admin who provisioned the company.
+          mustChangePassword: true,
           createdById: caller.userId,
         },
       });
@@ -584,6 +586,47 @@ export async function registerRoutes(app: FastifyInstance) {
     return updated;
   });
 
+  /**
+   * Signs out everyone holding this role.
+   *
+   * The counterweight to snapshotting permissions at sign-in. That snapshot is
+   * what stops a menu rearranging under somebody mid-shift, but it also means a
+   * revocation does not bite for up to the session's lifetime — the wrong lag
+   * on the day you discover a permission being abused. This closes that gap on
+   * demand: delete the sessions, and the next request re-reads the role.
+   */
+  app.post('/roles/:id/sign-out', async (request) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const caller = requireAuth(who(request));
+    const { companyId } = requireCompany(caller);
+    requirePermission(caller, 'admin.manage');
+
+    const role = await prisma.role.findFirst({ where: { id, companyId } });
+    if (!role) throw new HttpError(404, 'Role not found');
+
+    const users = await prisma.user.findMany({
+      where: { companyId, roleId: id },
+      select: { id: true },
+    });
+
+    // The caller keeps their own session. Signing yourself out for tightening
+    // somebody else's permissions is a punishment for doing the right thing,
+    // and it would drop you out of the screen mid-task.
+    const { count } = await prisma.session.deleteMany({
+      where: { userId: { in: users.map((u) => u.id).filter((uid) => uid !== caller.userId) } },
+    });
+
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'role',
+      entityId: id,
+      action: 'update',
+      summary: `Signed out ${count} session(s) on role ${role.name}`,
+    });
+    return { ok: true, signedOut: count };
+  });
+
   app.delete('/roles/:id', async (request) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const caller = requireAuth(who(request));
@@ -684,6 +727,9 @@ export async function registerRoutes(app: FastifyInstance) {
         email,
         phone: body.phone,
         passwordHash: await hashPassword(body.password),
+        // The admin picked this password, so the new user changes it on first
+        // sign-in. See POST /users/:id/password for the same reasoning.
+        mustChangePassword: true,
         createdById: caller.userId,
         access: { create: body.locationIds.map((locationId) => ({ locationId })) },
       },
@@ -774,7 +820,14 @@ export async function registerRoutes(app: FastifyInstance) {
 
     await prisma.user.update({
       where: { id },
-      data: { passwordHash: await hashPassword(body.password) },
+      data: {
+        passwordHash: await hashPassword(body.password),
+        // Somebody else chose this one, so it is a handover rather than a
+        // secret: the app stops them at a change-password screen on the way in.
+        // Without this the admin knows the user's password permanently, which
+        // is exactly what a reset is supposed to end.
+        mustChangePassword: true,
+      },
     });
     // Force them back through the door with the new credential.
     await prisma.session.deleteMany({ where: { userId: id } });

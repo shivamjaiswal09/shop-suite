@@ -1726,3 +1726,103 @@ describe('editing a SKU that has no HSN code', () => {
     expect(cleared.hsnCode ?? null).toBeNull();
   });
 });
+
+describe('role administration', () => {
+  it('creates a role with the implications of what was ticked', async () => {
+    const { repos, actor } = await setup();
+
+    const role = await repos.users.createRole(
+      { name: 'Floor Manager', permissions: ['sales.override_price'] },
+      actor,
+    );
+
+    // Ticking the action grants the screen it is performed on: you cannot
+    // discount at a till you cannot open.
+    expect(role.permissions).toContain('view.sales.billing');
+    expect(role.permissions).toContain('sales.override_price');
+    expect(role.system).toBe(false);
+  });
+
+  it('refuses to edit a built-in role', async () => {
+    const { repos, actor } = await setup();
+    const owner = (await repos.users.roles()).find((r) => r.system)!;
+
+    await expect(
+      repos.users.updateRole(owner.id, { name: 'Renamed' }, actor),
+    ).rejects.toThrow(/built-in/i);
+  });
+
+  it('refuses a change that would leave nobody able to administer', async () => {
+    const { repos, actor } = await setup();
+    const roles = await repos.users.roles();
+    const owner = roles.find((r) => r.permissions.includes('admin.manage'))!;
+
+    // The Owner role is seeded `system: true`, so go the other way: make an
+    // editable role the only admin, then try to take the permission away.
+    const custom = await repos.users.createRole(
+      { name: 'Sole Admin', permissions: ['admin.manage'] },
+      actor,
+    );
+    const users = await repos.users.list();
+    for (const user of users.filter((u) => u.roleId === owner.id)) {
+      await repos.users.update(user.id, { roleId: custom.id }, actor);
+    }
+
+    await expect(
+      repos.users.updateRole(custom.id, { permissions: ['sales.bill'] }, actor),
+    ).rejects.toThrow(/administer/i);
+  });
+
+  it('moves users to another role when one is deleted', async () => {
+    const { repos, actor } = await setup();
+    const cashier = (await repos.users.roles()).find((r) => r.name === 'Cashier')!;
+    const spare = await repos.users.createRole(
+      { name: 'Relief Cashier', permissions: ['sales.bill'] },
+      actor,
+    );
+
+    const moving = (await repos.users.list()).filter((u) => u.roleId === cashier.id);
+    expect(moving.length).toBeGreaterThan(0);
+
+    // Cashier is seeded system:true, so delete the custom one instead and check
+    // the reassignment path itself.
+    const doomed = await repos.users.createRole(
+      { name: 'Temporary', permissions: ['sales.bill'] },
+      actor,
+    );
+    await repos.users.update(moving[0]!.id, { roleId: doomed.id }, actor);
+
+    await repos.users.deleteRole(doomed.id, spare.id, actor);
+
+    const after = await repos.users.byId(moving[0]!.id);
+    expect(after?.roleId).toBe(spare.id);
+    expect((await repos.users.roles()).some((r) => r.id === doomed.id)).toBe(false);
+  });
+
+  it('counts the users on each role', async () => {
+    const { repos } = await setup();
+    const counts = await repos.users.roleUserCounts();
+    const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+    expect(total).toBe((await repos.users.list()).length);
+  });
+});
+
+describe('raising an order', () => {
+  it('reserves stock without taking it off the shelf', async () => {
+    const { repos, store, sku, actor } = await setup();
+    const before = await repos.stock.levelFor(sku.id, store.id);
+
+    const order = await repos.orders.create({
+      storeId: store.id,
+      lines: [{ skuId: sku.id, qty: 2 }],
+      createdBy: actor,
+    });
+
+    const after = await repos.stock.levelFor(sku.id, store.id);
+    // The whole point of an order: available drops, on-hand does not, because
+    // the goods are still physically on the shelf and still countable.
+    expect(after.onHand).toBe(before.onHand);
+    expect(after.available).toBe(before.available - 2);
+    expect(order.lines).toHaveLength(1);
+  });
+});

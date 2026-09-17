@@ -116,3 +116,35 @@ export function useLogout() {
     signOut();
   };
 }
+
+/**
+ * Changing your own password.
+ *
+ * Requires the current one — an unlocked laptop is not authorisation to change
+ * the credential on it. On success the server keeps this session alive and
+ * kills every other, and clears `mustChangePassword`, so the store is refreshed
+ * from the server's answer rather than guessed at here.
+ */
+export function useChangePassword() {
+  const repos = useRepositories();
+  const setUser = useSessionStore((s) => s.setUser);
+
+  return useMutation({
+    mutationFn: async ({
+      currentPassword,
+      newPassword,
+    }: {
+      currentPassword: string;
+      newPassword: string;
+    }) => {
+      await repos.auth.changePassword(currentPassword, newPassword);
+      // Re-read rather than patching the flag locally: the server decides what
+      // the session now is, and a client that assumes can strand someone on the
+      // forced-change screen forever.
+      return repos.auth.me();
+    },
+    onSuccess: (session) => {
+      if (session?.user) setUser(session.user);
+    },
+  });
+}
