@@ -408,90 +408,6 @@ export function QuickBillingPage() {
               </CardBody>
             </Card>
           ) : null}
-        </div>
-
-        <div className="space-y-5">
-          <Card>
-            <CardHeader title="Bill summary" />
-            <CardBody className="space-y-3">
-              <div className="space-y-1.5 text-sm">
-                <Row label="Sub total" value={money(totals.subTotal)} />
-                <Row label="Discount" value={`− ${money(totals.discountTotal)}`} muted />
-                <Row label="Taxable value" value={money(totals.taxableValue)} />
-              </div>
-
-              {taxRows.length > 0 ? (
-                <div className="rounded-md border border-border">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-border text-muted-foreground">
-                        <th className="px-2 py-1.5 text-left font-medium">Tax</th>
-                        <th className="px-2 py-1.5 text-right font-medium">Taxable</th>
-                        <th className="px-2 py-1.5 text-right font-medium">CGST</th>
-                        <th className="px-2 py-1.5 text-right font-medium">SGST</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {taxRows.map((row) => (
-                        <tr key={row.rate} className="border-b border-border last:border-0">
-                          <td className="px-2 py-1.5">{row.rate}%</td>
-                          <td className="tabular px-2 py-1.5 text-right">{money(row.taxableValue)}</td>
-                          <td className="tabular px-2 py-1.5 text-right">{money(row.cgst)}</td>
-                          <td className="tabular px-2 py-1.5 text-right">{money(row.sgst)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
-
-              <div className="space-y-1.5 text-sm">
-                <Row label="Total tax" value={money(totals.taxTotal)} />
-                <Row label="Round off" value={money(totals.roundOff)} muted />
-                <div className="flex items-center justify-between border-t border-border pt-2 text-base font-semibold">
-                  <span>Grand total</span>
-                  <span className="tabular">{money(totals.grandTotal)}</span>
-                </div>
-              </div>
-
-              {/* Once a name is among the configured bill fields, this box is
-                  asking for the same thing twice. It stays for a company that
-                  has configured nothing, which is still the default. */}
-              {activeFields.some((f) => f.key === 'name') ? null : (
-                <div>
-                  <Label htmlFor="customer">Customer</Label>
-                  <Input
-                    id="customer"
-                    placeholder="Walk-in Customer"
-                    value={cart.customerName ?? ''}
-                    onChange={(e) => cart.setCustomer({ name: e.target.value || undefined })}
-                  />
-                </div>
-              )}
-
-              {/* What was captured in the previous step, so the counter can
-                  check it against the customer before taking their money —
-                  the last moment it is cheap to correct. */}
-              {step === 'payment' && enteredDetails.length > 0 ? (
-                <div className="space-y-1.5 rounded-md border border-border p-3">
-                  {enteredDetails.map(([label, value]) => (
-                    <div key={label} className="flex justify-between gap-3 text-sm">
-                      <span className="text-muted-foreground">{label}</span>
-                      <span className="truncate font-medium">{value}</span>
-                    </div>
-                  ))}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="mt-1 h-7 px-2 text-xs"
-                    onClick={() => setStep('customer')}
-                  >
-                    Edit details
-                  </Button>
-                </div>
-              ) : null}
-            </CardBody>
-          </Card>
 
           {step === 'payment' ? (
           <Card>
@@ -610,6 +526,93 @@ export function QuickBillingPage() {
             </CardBody>
           </Card>
           ) : null}
+        </div>
+
+        <div className="space-y-5">
+          <Card>
+            <CardHeader title="Bill summary" />
+            <CardBody className="space-y-3">
+              <div className="space-y-1.5 text-sm">
+                <Row label="Sub total" value={money(totals.subTotal)} />
+                <Row label="Discount" value={`− ${money(totals.discountTotal)}`} muted />
+                <Row label="Taxable value" value={money(totals.taxableValue)} />
+              </div>
+
+              {taxRows.length > 0 ? (
+                <div className="rounded-md border border-border">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-muted-foreground">
+                        <th className="px-2 py-1.5 text-left font-medium">Tax</th>
+                        <th className="px-2 py-1.5 text-right font-medium">Taxable</th>
+                        <th className="px-2 py-1.5 text-right font-medium">CGST</th>
+                        <th className="px-2 py-1.5 text-right font-medium">SGST</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {taxRows.map((row) => (
+                        <tr key={row.rate} className="border-b border-border last:border-0">
+                          <td className="px-2 py-1.5">{row.rate}%</td>
+                          <td className="tabular px-2 py-1.5 text-right">{money(row.taxableValue)}</td>
+                          <td className="tabular px-2 py-1.5 text-right">{money(row.cgst)}</td>
+                          <td className="tabular px-2 py-1.5 text-right">{money(row.sgst)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              <div className="space-y-1.5 text-sm">
+                <Row label="Total tax" value={money(totals.taxTotal)} />
+                <Row label="Round off" value={money(totals.roundOff)} muted />
+                <div className="flex items-center justify-between border-t border-border pt-2 text-base font-semibold">
+                  <span>Grand total</span>
+                  <span className="tabular">{money(totals.grandTotal)}</span>
+                </div>
+              </div>
+
+              {/* Redundant the moment any bill field exists — the customer step
+                  is where details are entered then, whatever they are called.
+                  Keyed on 'name' at first, which missed a company that had
+                  called theirs "Customer Name". It stays only for a company
+                  that has configured nothing, which is still the default. */}
+              {activeFields.length > 0 ? null : (
+                <div>
+                  <Label htmlFor="customer">Customer</Label>
+                  <Input
+                    id="customer"
+                    placeholder="Walk-in Customer"
+                    value={cart.customerName ?? ''}
+                    onChange={(e) => cart.setCustomer({ name: e.target.value || undefined })}
+                  />
+                </div>
+              )}
+
+              {/* What was captured in the previous step, so the counter can
+                  check it against the customer before taking their money —
+                  the last moment it is cheap to correct. */}
+              {step === 'payment' && enteredDetails.length > 0 ? (
+                <div className="space-y-1.5 rounded-md border border-border p-3">
+                  {enteredDetails.map(([label, value]) => (
+                    <div key={label} className="flex justify-between gap-3 text-sm">
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="truncate font-medium">{value}</span>
+                    </div>
+                  ))}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-1 h-7 px-2 text-xs"
+                    onClick={() => setStep('customer')}
+                  >
+                    Edit details
+                  </Button>
+                </div>
+              ) : null}
+            </CardBody>
+          </Card>
+
 
           {lastInvoice ? (
             <Card>
