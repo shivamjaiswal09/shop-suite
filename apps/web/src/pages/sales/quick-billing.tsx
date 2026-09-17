@@ -80,8 +80,18 @@ export function QuickBillingPage() {
     [billFromEntities.data, store?.id],
   );
   const [billFromId, setBillFromId] = useState('');
-  // Entities exist for the company, but none of them name this store.
-  const billFromUnmapped = (billFromEntities.data ?? []).length > 0 && billFromOptions.length === 0;
+  // Active entities the company has that this store cannot bill under. Named
+  // rather than silently dropped: "only one is coming" is otherwise
+  // indistinguishable from "only one exists", and the fix is two clicks away in
+  // Masters once you know which entity is missing and why.
+  const billFromElsewhere = useMemo(
+    () =>
+      (billFromEntities.data ?? []).filter(
+        (e) => !billFromOptions.some((option) => option.id === e.id),
+      ),
+    [billFromEntities.data, billFromOptions],
+  );
+  const billFromUnmapped = billFromElsewhere.length > 0 && billFromOptions.length === 0;
   // One option is not a decision. Picked here rather than defaulted in state so
   // it follows the store switcher without a stale id surviving the change.
   const resolvedBillFrom =
@@ -417,6 +427,15 @@ export function QuickBillingPage() {
               <CardBody className="space-y-4">
                 {/* The bill's two parties, in the order the document prints
                     them: who it is from, then who it is to. */}
+                {billFromElsewhere.length > 0 && billFromOptions.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {billFromElsewhere.map((e) => e.legalName).join(', ')}{' '}
+                    {billFromElsewhere.length === 1 ? 'is' : 'are'} not billable from{' '}
+                    {store?.name ?? 'this store'}. Add the store under Onboarding → Masters → Bill
+                    From → “Billable from”.
+                  </p>
+                ) : null}
+
                 {billFromUnmapped ? (
                   // Silently omitting the block reads as "this shop has no
                   // billing entity", when in fact one exists and simply is not
