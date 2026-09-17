@@ -1,16 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { Sku } from '@shop/core';
+import { previewInvoicePage, type Sku } from '@shop/core';
 import {
   useCartPricing,
   useCartStore,
   useCategoryMap,
   useCheckout,
-  usePaymentMethods,
   useProducts,
   useSessionStore,
   useStockOverview,
   type CartLine as CartLineModel,
-  type Tender,
 } from '@shop/state';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -18,7 +16,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CartLine } from '@/components/billing/cart-line';
 import { LineSheet } from '@/components/billing/line-sheet';
 import { ProductSearch } from '@/components/billing/product-search';
-import { TenderSheet } from '@/components/billing/tender-sheet';
+import { InvoicePreviewSheet } from '@/components/billing/invoice-preview-sheet';
 import { Button, EmptyState, Row, Screen } from '@/components/ui';
 import { elevation, fontSize, money, radius, spacing, useTheme } from '@/lib/theme';
 
@@ -40,14 +38,12 @@ export default function BillScreen() {
   const cart = useCartStore();
   const { lines, totals, taxRows } = useCartPricing();
   const stock = useStockOverview(store?.id);
-  const paymentMethods = usePaymentMethods();
   const products = useProducts();
   const categoryById = useCategoryMap();
   const checkout = useCheckout();
 
   const [editing, setEditing] = useState<CartLineModel | null>(null);
-  const [tenderOpen, setTenderOpen] = useState(false);
-  const [detailOpen, setDetailOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const availableBySku = useMemo(
     () => new Map(stock.rows.map((row) => [row.sku.id, row.level.available])),
@@ -67,7 +63,33 @@ export default function BillScreen() {
   const itemCount = cart.lines.reduce((sum, l) => sum + l.qty, 0);
   const empty = cart.lines.length === 0;
 
-  const onBill = async (tenders: Tender[]) => {
+  /** The bill as it would be raised, for the confirmation sheet. */
+  const previewPage = useMemo(
+    () =>
+      previewInvoicePage({
+        customerName: cart.customerName ?? undefined,
+        interState: false,
+        lines: lines.map((line) => ({
+          name: line.name,
+          hsnCode: line.hsnCode,
+          qty: line.qty,
+          unitPrice: line.unitPrice,
+          taxRate: line.taxRate,
+          taxableValue: line.taxableValue,
+          taxAmount: line.taxAmount,
+          lineTotal: line.lineTotal,
+        })),
+        totals: {
+          taxableValue: totals.taxableValue,
+          taxTotal: totals.taxTotal,
+          roundOff: totals.roundOff,
+          grandTotal: totals.grandTotal,
+        },
+      }),
+    [lines, totals, cart.customerName],
+  );
+
+  const onBill = async () => {
     if (!store || !user || cart.lines.length === 0) return;
     const result = await checkout.mutateAsync({
       storeId: store.id,
@@ -81,11 +103,13 @@ export default function BillScreen() {
         unitPriceOverride: l.unitPriceOverride,
         overrideBasis: l.overrideBasis,
       })),
-      tenders,
+      // Always unpaid here, as on web: the money is taken on the invoice that
+      // comes back, where the document exists and a correction is possible.
+      tenders: [],
       createdBy: user.id,
     });
     cart.clear();
-    setTenderOpen(false);
+    setPreviewOpen(false);
     router.push(`/invoice/${result.invoice.id}`);
   };
 
@@ -142,66 +166,52 @@ export default function BillScreen() {
             { backgroundColor: colors.card, borderTopColor: colors.border },
           ]}
         >
-          {detailOpen ? (
-            <View style={styles.detail}>
-              <Row label="Sub total" value={money(totals.subTotal)} />
-              {totals.discountTotal > 0 ? (
-                <Row label="Discount" value={`− ${money(totals.discountTotal)}`} muted />
-              ) : null}
-              <Row label="Taxable value" value={money(totals.taxableValue)} muted />
-              {taxRows.map((row) => (
-                <Row
-                  key={row.rate}
-                  label={`GST @ ${row.rate}% (CGST ${money(row.cgst)} + SGST ${money(row.sgst)})`}
-                  value={money(row.cgst + row.sgst)}
-                  muted
-                />
-              ))}
-              <Row label="Total tax" value={money(totals.taxTotal)} />
-              {totals.roundOff !== 0 ? (
-                <Row label="Round off" value={money(totals.roundOff)} muted />
-              ) : null}
-            </View>
-          ) : null}
+          {/* Always shown. The tax a customer is being charged is not a detail
+              to go looking for, and a cashier reading it out should not have to
+              remember to open it first. */}
+          <View style={styles.detail}>
+            <Row label="Sub total" value={money(totals.subTotal)} />
+            {totals.discountTotal > 0 ? (
+              <Row label="Discount" value={`− ${money(totals.discountTotal)}`} muted />
+            ) : null}
+            <Row label="Taxable value" value={money(totals.taxableValue)} muted />
+            {taxRows.map((row) => (
+              <Row
+                key={row.rate}
+                label={`GST @ ${row.rate}% (CGST ${money(row.cgst)} + SGST ${money(row.sgst)})`}
+                value={money(row.cgst + row.sgst)}
+                muted
+              />
+            ))}
+            <Row label="Total tax" value={money(totals.taxTotal)} />
+            {totals.roundOff !== 0 ? (
+              <Row label="Round off" value={money(totals.roundOff)} muted />
+            ) : null}
+          </View>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
-              detailOpen ? 'Hide bill breakdown' : 'Show bill breakdown including tax'
-            }
-            onPress={() => setDetailOpen((open) => !open)}
-            style={styles.summaryToggle}
-          >
-            <Text style={[styles.itemCount, { color: colors.mutedForeground }]}>
-              {itemCount} {itemCount === 1 ? 'item' : 'items'} · incl. {money(totals.taxTotal)} tax
-            </Text>
-            <Ionicons
-              name={detailOpen ? 'chevron-down' : 'chevron-up'}
-              size={16}
-              color={colors.mutedForeground}
-            />
-          </Pressable>
+          <Text style={[styles.itemCount, { color: colors.mutedForeground }]}>
+            {itemCount} {itemCount === 1 ? 'item' : 'items'} · incl. {money(totals.taxTotal)} tax
+          </Text>
 
           <Button
-            label="Charge"
+            label="Raise invoice"
             trailing={money(totals.grandTotal)}
-            icon="card-outline"
+            icon="document-text-outline"
             size="lg"
             block
             disabled={checkout.isPending || totals.grandTotal <= 0}
-            onPress={() => setTenderOpen(true)}
+            onPress={() => setPreviewOpen(true)}
           />
         </View>
       )}
 
       <LineSheet line={editing} onClose={() => setEditing(null)} />
 
-      <TenderSheet
-        visible={tenderOpen}
-        onClose={() => setTenderOpen(false)}
-        total={totals.grandTotal}
-        methods={paymentMethods.data ?? []}
-        onConfirm={(tenders) => void onBill(tenders)}
+      <InvoicePreviewSheet
+        visible={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        page={previewPage}
+        onConfirm={() => void onBill()}
         pending={checkout.isPending}
         error={checkout.error ? (checkout.error as Error).message : null}
       />

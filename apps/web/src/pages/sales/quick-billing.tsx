@@ -16,7 +16,6 @@ import {
   useBillFromEntities,
   useProducts,
   useCheckout,
-  useCreateOrder,
   useCustomerByPhone,
   useSessionStore,
   useStockOverview,
@@ -46,7 +45,6 @@ export function QuickBillingPage() {
   const cart = useCartStore();
   const taxes = useTaxMap();
   const checkout = useCheckout();
-  const createOrder = useCreateOrder();
   const stock = useStockOverview(store?.id);
   const cartIsForeign = useCartIsForeign(store?.id);
 
@@ -252,17 +250,6 @@ export function QuickBillingPage() {
     setBillFromId('');
     setShowMissing(false);
     setStep('cart');
-  };
-
-  const onReserve = async () => {
-    if (!store || !user || cart.lines.length === 0) return;
-    await createOrder.mutateAsync({
-      storeId: store.id,
-      customerId: cart.customerId,
-      lines: saleLines(),
-      createdBy: user.id,
-    });
-    cart.clear();
   };
 
   return (
@@ -617,19 +604,6 @@ export function QuickBillingPage() {
                 <Receipt className="h-4 w-4" />
                 {checkout.isPending ? 'Raising…' : `Raise invoice ${money(totals.grandTotal)}`}
               </Button>
-
-              <Button
-                variant="outline"
-                className="w-full"
-                disabled={cart.lines.length === 0 || createOrder.isPending}
-                onClick={() => void onReserve()}
-              >
-                {createOrder.isPending ? 'Reserving…' : 'Park as order (reserve stock)'}
-              </Button>
-
-              {createOrder.error ? (
-                <p className="text-xs text-destructive">{(createOrder.error as Error).message}</p>
-              ) : null}
 
               <p className="text-[11px] text-muted-foreground">
                 Billing appends one <code>sale</code> movement per line — stock is never written

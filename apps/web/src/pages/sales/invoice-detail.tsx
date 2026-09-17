@@ -1,4 +1,4 @@
-import type { Invoice } from '@shop/core';
+import { roundMoney, type Invoice } from '@shop/core';
 import {
   useCan,
   useCancelInvoice,
@@ -11,6 +11,7 @@ import {
   usePrintInvoice,
   useSessionStore,
 } from '@shop/state';
+import { X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { CapturedDetails } from './captured-details';
 import { Badge } from '@/components/ui/badge';
@@ -33,9 +34,12 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
   const billFields = useBillFields(true);
   const capture = useCapturePayment();
 
-  const [methodId, setMethodId] = useState('');
-  const [amount, setAmount] = useState('');
-  const [reference, setReference] = useState('');
+  /**
+   * One row per tender. A customer paying half in cash and half by UPI is one
+   * settlement, not two visits to the form — and entering it as two separate
+   * captures means the second is typed against a due figure that moved.
+   */
+  const [tenders, setTenders] = useState<Draft[]>([EMPTY_TENDER]);
   const [error, setError] = useState<string | null>(null);
 
   // Mirrors the permission the API enforces. Hiding these is courtesy, not
@@ -56,8 +60,19 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
 
   const due = invoice?.amountDue ?? 0;
 
+  const setTender = (index: number, patch: Partial<Draft>) =>
+    setTenders((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+
+  /** What the rows currently add up to, and what that leaves outstanding. */
+  const entered = roundMoney(
+    tenders.reduce((sum, row) => sum + (Number(row.amount) || 0), 0),
+  );
+  const remaining = roundMoney(due - entered);
+
   useEffect(() => {
-    setAmount(due > 0 ? String(due) : '');
+    // One row, pre-filled with the whole balance: the common settlement is a
+    // single tender for everything, and splitting is a click away.
+    setTenders([{ ...EMPTY_TENDER, amount: due > 0 ? String(due) : '' }]);
     setError(null);
     // Reset per invoice, so a confirmation typed for one bill can never be
     // still sitting in the field when another is opened.
@@ -67,7 +82,6 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
   }, [invoice?.id, due]);
 
   const close = () => {
-    setReference('');
     setError(null);
     setAdminMode('none');
     onClose();
@@ -122,32 +136,47 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
     if (!invoice || !user) return;
     setError(null);
 
-    const value = Number(amount);
-    const selected = methodId || methods.data?.[0]?.id;
-    if (!selected) return;
-    if (!Number.isFinite(value) || value <= 0) {
-      setError('Enter an amount greater than zero.');
+    const fallbackMethod = methods.data?.[0]?.id;
+    const rows = tenders
+      .map((row) => ({
+        paymentMethodId: row.methodId || fallbackMethod || '',
+        amount: Number(row.amount),
+        reference: row.reference.trim() || undefined,
+      }))
+      // A blank row is somebody who clicked Add and changed their mind, not an
+      // error worth stopping the settlement for.
+      .filter((row) => row.amount !== 0 || row.reference !== undefined);
+
+    if (rows.length === 0) {
+      setError('Enter an amount to capture.');
       return;
     }
-    if (value > due) {
-      setError(`Only ${money(due)} is outstanding.`);
+    if (rows.some((row) => !row.paymentMethodId)) return;
+    if (rows.some((row) => !Number.isFinite(row.amount) || row.amount <= 0)) {
+      setError('Every tender needs an amount greater than zero.');
+      return;
+    }
+
+    const total = roundMoney(rows.reduce((sum, row) => sum + row.amount, 0));
+    if (total > due) {
+      setError(`That comes to ${money(total)}, and only ${money(due)} is outstanding.`);
       return;
     }
 
     try {
-      await capture.mutateAsync({
-        invoiceId: invoice.id,
-        paymentMethodId: selected,
-        amount: value,
-        reference: reference || undefined,
-        // Keyed on what has already been paid, which comes from the invoice
-        // itself — so a double-click dedupes, but a genuine second tender does
-        // not. Deriving it from the payments list would be wrong while that
-        // query is still loading.
-        idempotencyKey: `${invoice.id}:settle:${invoice.amountPaid}`,
-        createdBy: user.id,
-      });
-      setReference('');
+      // Keys derived once, before anything is written: each is keyed on what
+      // had been paid when the form was submitted plus the row's position, so
+      // re-submitting the same split dedupes row for row, while a genuine
+      // second settlement later keys differently.
+      const paidBefore = invoice.amountPaid;
+      for (const [index, row] of rows.entries()) {
+        await capture.mutateAsync({
+          invoiceId: invoice.id,
+          ...row,
+          idempotencyKey: `${invoice.id}:settle:${paidBefore}:${index}`,
+          createdBy: user.id,
+        });
+      }
     } catch (cause) {
       setError((cause as Error).message);
     }
@@ -353,41 +382,87 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
         {due > 0 ? (
           <form onSubmit={(e) => void onSubmit(e)} className="space-y-3 rounded-md border border-border p-4">
             <p className="text-sm font-medium">Capture payment</p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <Label htmlFor="method">Method</Label>
-                <Select id="method" value={methodId} onChange={(e) => setMethodId(e.target.value)}>
-                  {(methods.data ?? []).map((method) => (
-                    <option key={method.id} value={method.id}>
-                      {method.name}
-                    </option>
-                  ))}
-                </Select>
+
+            {tenders.map((tender, index) => (
+              <div key={index} className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                <div>
+                  <Label htmlFor={`method-${index}`}>Method</Label>
+                  <Select
+                    id={`method-${index}`}
+                    value={tender.methodId}
+                    onChange={(e) => setTender(index, { methodId: e.target.value })}
+                  >
+                    {(methods.data ?? []).map((method) => (
+                      <option key={method.id} value={method.id}>
+                        {method.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor={`amount-${index}`}>Amount</Label>
+                  <Input
+                    id={`amount-${index}`}
+                    className="tabular"
+                    value={tender.amount}
+                    onChange={(e) => setTender(index, { amount: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor={`ref-${index}`}>Reference</Label>
+                  <Input
+                    id={`ref-${index}`}
+                    value={tender.reference}
+                    placeholder="UPI txn id"
+                    onChange={(e) => setTender(index, { reference: e.target.value })}
+                  />
+                </div>
+                <div className="flex items-end">
+                  {/* The last row is never removable — a form with no rows has
+                      nothing to type into and no way back. */}
+                  {tenders.length > 1 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Remove tender ${index + 1}`}
+                      onClick={() => setTenders((prev) => prev.filter((_, i) => i !== index))}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                </div>
               </div>
-              <div>
-                <Label htmlFor="amount">Amount</Label>
-                <Input
-                  id="amount"
-                  className="tabular"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label htmlFor="ref">Reference</Label>
-                <Input
-                  id="ref"
-                  value={reference}
-                  placeholder="UPI txn id"
-                  onChange={(e) => setReference(e.target.value)}
-                />
-              </div>
+            ))}
+
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <button
+                type="button"
+                className="text-primary underline-offset-2 hover:underline"
+                onClick={() =>
+                  setTenders((prev) => [
+                    ...prev,
+                    // Pre-filled with what is still short, which is what the
+                    // second tender almost always is.
+                    { ...EMPTY_TENDER, amount: remaining > 0 ? String(remaining) : '' },
+                  ])
+                }
+              >
+                + Split across another method
+              </button>
+              <span className={`tabular ${remaining < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {remaining === 0
+                  ? 'Settles the bill in full'
+                  : remaining > 0
+                    ? `${money(remaining)} still short`
+                    : `${money(-remaining)} over the balance`}
+              </span>
             </div>
 
             {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
-            <Button type="submit" disabled={capture.isPending}>
-              {capture.isPending ? 'Capturing…' : `Capture ${money(Number(amount) || 0)}`}
+            <Button type="submit" disabled={capture.isPending || entered <= 0}>
+              {capture.isPending ? 'Capturing…' : `Capture ${money(entered)}`}
             </Button>
           </form>
         ) : (
@@ -480,6 +555,15 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
     </Modal>
   );
 }
+
+/** One tender being entered. Strings, because they come from inputs. */
+interface Draft {
+  methodId: string;
+  amount: string;
+  reference: string;
+}
+
+const EMPTY_TENDER: Draft = { methodId: '', amount: '', reference: '' };
 
 /**
  * What a payment row is, in a word.

@@ -17,6 +17,9 @@ import {
 const MAX_RESULTS = 8;
 const MAX_BROWSE = 30;
 
+/** Marks the chip that browses every SKU rather than one category. */
+const ALL_CATEGORIES = '__all__';
+
 /**
  * The counter's entry point. One field serves both hands-free scanning and
  * thumb typing: a scanner's Enter keystroke resolves an exact barcode and adds
@@ -62,13 +65,24 @@ export function ProductSearch({
     [categoryList.data],
   );
 
+  /**
+   * The chip that browses everything. A sentinel rather than null, because null
+   * already means "nothing selected" — and without this there was no way to see
+   * the whole shelf at all: deselecting a category showed an empty list.
+   */
+  const allChip = { id: ALL_CATEGORIES, name: 'All' };
+
   const searching = term.trim().length > 0;
   const browsing = !searching && category !== null;
 
   const browseSkus = useMemo(() => {
     if (!browsing) return [];
     return (allSkus.data ?? [])
-      .filter((sku) => productById.get(sku.productId)?.categoryId === category)
+      .filter(
+        (sku) =>
+          category === ALL_CATEGORIES ||
+          productById.get(sku.productId)?.categoryId === category,
+      )
       .slice(0, MAX_BROWSE);
   }, [browsing, allSkus.data, productById, category]);
 
@@ -165,14 +179,16 @@ export function ProductSearch({
           contentContainerStyle={styles.chipRow}
           style={styles.chipScroll}
         >
-          {categories.map((c) => {
+          {[allChip, ...categories].map((c) => {
             const active = category === c.id;
             return (
               <Pressable
                 key={c.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                accessibilityLabel={`Browse ${c.name}`}
+                accessibilityLabel={
+                  c.id === ALL_CATEGORIES ? 'Browse all items' : `Browse ${c.name}`
+                }
                 onPress={() => setCategory(active ? null : c.id)}
                 style={[
                   styles.chip,

@@ -1,7 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { InvoiceStatus } from '@shop/core';
-import { useInvoice, useInvoicePayments, usePaymentMethods } from '@shop/state';
+import {
+  useCapturePayment,
+  useInvoice,
+  useInvoicePayments,
+  usePaymentMethods,
+  useSessionStore,
+  type Tender,
+} from '@shop/state';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import {
   Badge,
@@ -14,6 +22,7 @@ import {
   ScrollScreen,
   type Tone,
 } from '@/components/ui';
+import { TenderSheet } from '@/components/billing/tender-sheet';
 import { fontSize, money, qty as fmtQty, shortTime, spacing, useTheme } from '@/lib/theme';
 
 const STATUS_TONE: Record<InvoiceStatus, Tone> = {
@@ -45,6 +54,35 @@ export default function InvoiceScreen() {
   const invoice = useInvoice(id);
   const payments = useInvoicePayments(id);
   const methods = usePaymentMethods();
+  const capture = useCapturePayment();
+  const user = useSessionStore((s) => s.user);
+
+  // Declared above the early returns below: hooks cannot run conditionally.
+  const [tenderOpen, setTenderOpen] = useState(false);
+
+  /**
+   * Money is taken here rather than during billing, so the document exists
+   * before anything is recorded against it — and a mistake is a correction on
+   * a real invoice rather than a bill that was never raised.
+   */
+  const onTake = async (tenders: Tender[]) => {
+    if (!user) return;
+    for (const tender of tenders) {
+      await capture.mutateAsync({
+        invoiceId: id,
+        paymentMethodId: tender.paymentMethodId,
+        amount: tender.amount,
+        // One key per invoice, method and amount: a double tap cannot take the
+        // money twice, while a genuine second tender of the same amount is
+        // distinguished by the count already recorded.
+        idempotencyKey: `${id}:${tender.paymentMethodId}:${tender.amount}:${
+          (payments.data ?? []).length
+        }`,
+        createdBy: user.id,
+      });
+    }
+    setTenderOpen(false);
+  };
 
   if (invoice.isLoading) {
     return (
@@ -143,12 +181,34 @@ export default function InvoiceScreen() {
         </Card>
       ) : null}
 
+      {inv.amountDue > 0 ? (
+        <Button
+          label="Take payment"
+          trailing={money(inv.amountDue)}
+          icon="card-outline"
+          size="lg"
+          block
+          onPress={() => setTenderOpen(true)}
+        />
+      ) : null}
+
       <Button
         label="Start next bill"
         icon="add-circle-outline"
+        variant={inv.amountDue > 0 ? 'outline' : 'primary'}
         size="lg"
         block
         onPress={() => router.dismissTo('/(tabs)/bill')}
+      />
+
+      <TenderSheet
+        visible={tenderOpen}
+        onClose={() => setTenderOpen(false)}
+        total={inv.amountDue}
+        methods={methods.data ?? []}
+        onConfirm={(tenders) => void onTake(tenders)}
+        pending={capture.isPending}
+        error={capture.error ? (capture.error as Error).message : null}
       />
     </ScrollScreen>
   );
