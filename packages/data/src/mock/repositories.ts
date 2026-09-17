@@ -952,6 +952,12 @@ export class MockRepositories implements Repositories {
         }
         patch = { ...patch, barcode };
       }
+      if (patch.hsnCode !== undefined) {
+        // As with the barcode: '' is a cleared field, not a code of length
+        // zero. The schema rejects '', so passing it through turned every edit
+        // of an HSN-less SKU into a validation error.
+        patch = { ...patch, hsnCode: patch.hsnCode?.trim() || null };
+      }
       if (patch.code) {
         const code = patch.code.trim();
         if (this.store.skus.some((s) => s.id !== id && s.code.toLowerCase() === code.toLowerCase())) {

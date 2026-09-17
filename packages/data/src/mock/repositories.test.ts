@@ -1684,3 +1684,45 @@ describe('correcting a captured payment', () => {
     expect(audit.some((e) => e.entity === 'payment' && e.action === 'update')).toBe(true);
   });
 });
+
+describe('editing a SKU that has no HSN code', () => {
+  it('treats a cleared HSN as absent rather than as a zero-length code', async () => {
+    // Only the SKU code is mandatory at onboarding, so most SKUs carry no HSN.
+    // Passing the blank field straight through made every edit of one fail
+    // validation, which meant those SKUs could not be edited at all.
+    const { repos, store, actor } = await setup();
+    const category = (await repos.masters.categories())[0]!;
+    const uom = (await repos.masters.unitsOfMeasure())[0]!;
+    const tax = (await repos.masters.taxes())[0]!;
+    const product = await repos.products.createProduct({
+      name: 'Tyre', categoryId: category.id, createdBy: actor,
+    });
+    const sku = await repos.products.createSku({
+      productId: product.id, code: 'NO-HSN', uomId: uom.id, taxId: tax.id, createdBy: actor,
+      openingStock: { locationId: store.id, qty: 1 },
+    });
+
+    const saved = await repos.products.updateSku(sku.id, { hsnCode: '', sellingPrice: 99 }, actor);
+    expect(saved.hsnCode ?? null).toBeNull();
+    expect(saved.sellingPrice).toBe(99);
+  });
+
+  it('clears an HSN that was typed onto the wrong row', async () => {
+    const { repos, store, actor } = await setup();
+    const category = (await repos.masters.categories())[0]!;
+    const uom = (await repos.masters.unitsOfMeasure())[0]!;
+    const tax = (await repos.masters.taxes())[0]!;
+    const product = await repos.products.createProduct({
+      name: 'Tube', categoryId: category.id, createdBy: actor,
+    });
+    const sku = await repos.products.createSku({
+      productId: product.id, code: 'WRONG-HSN', hsnCode: '4011',
+      uomId: uom.id, taxId: tax.id, createdBy: actor,
+      openingStock: { locationId: store.id, qty: 1 },
+    });
+    expect(sku.hsnCode).toBe('4011');
+
+    const cleared = await repos.products.updateSku(sku.id, { hsnCode: '   ' }, actor);
+    expect(cleared.hsnCode ?? null).toBeNull();
+  });
+});

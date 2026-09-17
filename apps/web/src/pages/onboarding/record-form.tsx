@@ -7,6 +7,14 @@ export interface FormField {
   label: string;
   type?: 'text' | 'number' | 'select' | 'checkbox' | 'email';
   options?: { value: string; label: string }[];
+  /**
+   * Options that depend on what is currently entered — a sub-brand list
+   * narrowed by the chosen brand. Takes precedence over `options`.
+   *
+   * A value no longer in the list is treated as unset, so changing the brand
+   * cannot leave a sub-brand from the old one silently selected and submitted.
+   */
+  optionsFor?: (values: FormValues) => { value: string; label: string }[];
   required?: boolean;
   placeholder?: string;
   initial?: string;
@@ -45,15 +53,31 @@ export function RecordForm({
 
   const set = (name: string, value: string) => setValues((prev) => ({ ...prev, [name]: value }));
 
+  const optionsOf = (field: FormField) =>
+    field.optionsFor ? field.optionsFor(values) : (field.options ?? []);
+
+  /**
+   * What the form actually holds, after dependent selects have dropped any
+   * value their current options no longer offer.
+   */
+  const resolved: FormValues = { ...values };
+  for (const field of fields) {
+    if (field.type !== 'select' || !field.optionsFor) continue;
+    const current = values[field.name] ?? '';
+    if (current && !optionsOf(field).some((option) => option.value === current)) {
+      resolved[field.name] = '';
+    }
+  }
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
     try {
-      await onSubmit(values);
+      await onSubmit(resolved);
       if (resetOnSuccess) setValues(initialValues(fields));
     } catch (cause) {
       // Deliberately keep `values` — retyping a rejected form is miserable.
-      setError((cause as Error).message);
+      setError(readable((cause as Error).message));
     }
   };
 
@@ -66,10 +90,10 @@ export function RecordForm({
             {field.type === 'select' ? (
               <Select
                 id={field.name}
-                value={values[field.name] ?? ''}
+                value={resolved[field.name] ?? ''}
                 onChange={(e) => set(field.name, e.target.value)}
               >
-                {(field.options ?? []).map((option) => (
+                {optionsOf(field).map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -105,6 +129,24 @@ export function RecordForm({
       </Button>
     </form>
   );
+}
+
+/**
+ * Zod stringifies a failure as its raw issue array, which reached the screen as
+ * a wall of JSON. Nobody can act on that; the issue's own message and field can
+ * be read at a glance.
+ */
+function readable(message: string): string {
+  if (!message.trimStart().startsWith('[')) return message;
+  try {
+    const issues = JSON.parse(message) as { message?: string; path?: (string | number)[] }[];
+    const lines = issues
+      .filter((issue) => issue?.message)
+      .map((issue) => (issue.path?.length ? `${issue.path.join('.')}: ${issue.message}` : issue.message!));
+    return lines.length > 0 ? lines.join('; ') : message;
+  } catch {
+    return message;
+  }
 }
 
 const spanClass = (span?: 1 | 2 | 3 | 4) =>

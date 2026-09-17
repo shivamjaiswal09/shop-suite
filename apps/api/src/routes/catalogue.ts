@@ -1601,6 +1601,10 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
     // Undefined means "not being changed"; anything else resolves to a real
     // barcode or to null, never to ''.
     const barcode = patch.barcode === undefined ? undefined : patch.barcode || null;
+    // Same rule for the HSN: a cleared field is NULL, never ''. Storing ''
+    // makes "has no HSN" two different values that every later query has to
+    // remember to check for.
+    const hsnCode = patch.hsnCode === undefined ? undefined : patch.hsnCode || null;
     // `NOT: { id }` is the whole point: re-saving a row's own barcode is not a
     // clash, and an edit form posts every field back whether it changed or not.
     if (barcode) {
@@ -1621,7 +1625,7 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
 
     const sku = await prisma.sku.update({
       where: { id },
-      data: { ...patch, code, barcode, name: patch.name?.trim() },
+      data: { ...patch, code, barcode, hsnCode, name: patch.name?.trim() },
     });
     await audit({
       companyId,

@@ -1,4 +1,7 @@
+import { subBrandsOf, topLevelBrands } from '@shop/core';
 import {
+  useBrands,
+  useCategories,
   useCategoryMap,
   useProducts,
   useSessionStore,
@@ -6,6 +9,7 @@ import {
   useTaxes,
   useTaxMap,
   useUnitsOfMeasure,
+  useUpdateProduct,
   useUpdateSku,
 } from '@shop/state';
 import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
@@ -27,6 +31,9 @@ export function ProductsPage() {
   const uoms = useUnitsOfMeasure(true);
   const taxList = useTaxes(true);
   const updateSku = useUpdateSku();
+  const updateProduct = useUpdateProduct();
+  const brands = useBrands(true);
+  const categoryList = useCategories(true);
   const taxes = useTaxMap();
   const categories = useCategoryMap();
   const [term, setTerm] = useState('');
@@ -38,6 +45,14 @@ export function ProductsPage() {
     [products.data],
   );
   const uomById = useMemo(() => new Map((uoms.data ?? []).map((u) => [u.id, u])), [uoms.data]);
+  /** How many SKUs hang off each product, so the edit form can warn about reach. */
+  const skusPerProduct = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const sku of skus.data ?? []) {
+      counts.set(sku.productId, (counts.get(sku.productId) ?? 0) + 1);
+    }
+    return counts;
+  }, [skus.data]);
 
   const needle = term.trim().toLowerCase();
   const visible = (skus.data ?? []).filter(
@@ -167,6 +182,61 @@ export function ProductsPage() {
                                 label: 'Reorder level',
                                 initial: String(sku.reorderLevel),
                               },
+                              // Brand, sub-brand, category and product name live
+                              // on the parent Product, not the SKU. Every unique
+                              // combination is onboarded as its own product here,
+                              // so editing them together is the only way that
+                              // matches how they were entered.
+                              {
+                                name: 'productName',
+                                // Says so when the product is shared. Brand,
+                                // category and name belong to the product, so
+                                // changing them here changes every SKU under it
+                                // — silently, if the form does not admit it.
+                                label:
+                                  skusPerProduct.get(sku.productId)! > 1
+                                    ? `Product name (shared by ${skusPerProduct.get(sku.productId)} SKUs)`
+                                    : 'Product name',
+                                initial: product?.name ?? '',
+                                span: 2,
+                              },
+                              {
+                                name: 'categoryId',
+                                label: 'Category',
+                                type: 'select',
+                                initial: product?.categoryId ?? '',
+                                options: (categoryList.data ?? []).map((c) => ({
+                                  value: c.id,
+                                  label: c.name,
+                                })),
+                              },
+                              {
+                                name: 'brandId',
+                                label: 'Brand',
+                                type: 'select',
+                                initial: product?.brandId ?? '',
+                                options: [
+                                  { value: '', label: '— none —' },
+                                  ...topLevelBrands(brands.data ?? []).map((b) => ({
+                                    value: b.id,
+                                    label: b.name,
+                                  })),
+                                ],
+                              },
+                              {
+                                name: 'subBrandId',
+                                label: 'Sub-brand',
+                                type: 'select',
+                                initial: product?.subBrandId ?? '',
+                                // Narrowed by the brand chosen above, and cleared
+                                // if the brand changes out from under it.
+                                optionsFor: (values) => [
+                                  { value: '', label: '— none —' },
+                                  ...subBrandsOf(brands.data ?? [], values.brandId || undefined).map(
+                                    (b) => ({ value: b.id, label: b.name }),
+                                  ),
+                                ],
+                              },
                               activeField(sku.active),
                             ],
                           })
@@ -216,10 +286,30 @@ export function ProductsPage() {
 
       <EditDialog
         target={editing}
-        pending={updateSku.isPending}
+        pending={updateSku.isPending || updateProduct.isPending}
         onClose={() => setEditing(null)}
         onSubmit={async (id, v) => {
           if (!actor) return;
+
+          // The product first. If the brand pair is rejected the SKU is left
+          // untouched, so a failed save does not half-apply — and the API
+          // validates brand against sub-brand, which is the check that fails.
+          const productId = (skus.data ?? []).find((s) => s.id === id)?.productId;
+          if (productId) {
+            await updateProduct.mutateAsync({
+              id: productId,
+              actorId: actor.id,
+              patch: {
+                name: v.productName,
+                categoryId: v.categoryId,
+                // '' clears it: a product mis-assigned to a brand has to be
+                // detachable, and the API reads null as "clear".
+                brandId: v.brandId || null,
+                subBrandId: v.subBrandId || null,
+              },
+            });
+          }
+
           await updateSku.mutateAsync({
             id,
             actorId: actor.id,
@@ -227,8 +317,10 @@ export function ProductsPage() {
               code: v.code,
               barcode: v.barcode,
               // '' clears it, matching how barcode behaves — an HSN typed onto
-              // the wrong row has to be removable.
-              hsnCode: v.hsnCode ?? null,
+              // the wrong row has to be removable. Coerced here rather than
+              // passed through: the field yields '' when blank, which is
+              // neither a code nor an instruction to clear.
+              hsnCode: v.hsnCode?.trim() || null,
               name: v.name,
               uomId: v.uomId,
               taxId: v.taxId,

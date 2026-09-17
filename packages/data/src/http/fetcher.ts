@@ -21,6 +21,20 @@ export class ApiError extends Error {
 
 type Query = Record<string, string | number | boolean | undefined>;
 
+/**
+ * The sentence to show someone.
+ *
+ * A validation failure answers with `details` naming the offending fields;
+ * showing only `error` reduced every one of them to "Invalid request", which
+ * tells the person at the counter nothing about what to change.
+ */
+const messageOf = (detail: unknown, status: number): string => {
+  const body = detail as { error?: string; details?: string[] } | null;
+  const base = body?.error ?? `Request failed (${status})`;
+  const details = body?.details;
+  return Array.isArray(details) && details.length > 0 ? `${base} — ${details.join('; ')}` : base;
+};
+
 const withQuery = (path: string, query?: Query) => {
   if (!query) return path;
   const params = new URLSearchParams();
@@ -44,7 +58,7 @@ export function createFetcher(config: HttpConfig) {
       // The API answers with { error } — surface that, not a bare status code,
       // because these messages are written to be shown to a cashier.
       const detail = await response.json().catch(() => null);
-      throw new ApiError(response.status, detail?.error ?? `Request failed (${response.status})`);
+      throw new ApiError(response.status, messageOf(detail, response.status));
     }
 
     if (response.status === 204) return undefined as T;
