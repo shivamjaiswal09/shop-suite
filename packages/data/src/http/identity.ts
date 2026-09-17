@@ -1,4 +1,4 @@
-import type { Company, Role, StockLocation, StoreWarehouseLink, User } from '@shop/core';
+import type { Company, NewRole, Role, RolePatch, StockLocation, StoreWarehouseLink, User } from '@shop/core';
 import type {
   AuthRepository,
   CompanyPatch,
@@ -109,6 +109,21 @@ export function createIdentityRepositories(fetcher: Fetcher): {
     },
 
     roles: () => fetcher.get<Role[]>('/roles'),
+
+    roleUserCounts: () => fetcher.get<Record<string, number>>('/roles/user-counts'),
+
+    // As everywhere else in this layer, the actor comes from the session cookie
+    // — a client-supplied one is a claim, not a fact.
+    createRole: (input: NewRole) => fetcher.post<Role>('/roles', input),
+
+    updateRole: (id, patch: RolePatch) => fetcher.patch<Role>(`/roles/${id}`, patch),
+
+    deleteRole: async (id, reassignToRoleId) => {
+      // Sent as a body rather than a query string: it is not a filter, it is
+      // where every user holding this role ends up, and the server refuses
+      // without it rather than orphaning them.
+      await fetcher.request('DELETE', `/roles/${id}`, { reassignToRoleId });
+    },
 
     /**
      * Deliberately unsupported. This existed only because the prototype logged

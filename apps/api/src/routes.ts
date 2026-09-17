@@ -12,35 +12,59 @@ import {
   hashPassword,
   HttpError,
   principalFrom,
+  requireAuth,
   requireCompany,
   requirePermission,
   requireSuperAdmin,
   verifyPassword,
   type Principal,
 } from './auth.ts';
+import {
+  ACTION_PERMISSIONS,
+  newRoleSchema,
+  normalizeRolePermissions,
+  rolePatchSchema,
+  SCREEN_PERMISSIONS,
+} from '@shop/core';
 import { prisma } from './db.ts';
 
-/** Permissions a freshly created company's Admin role gets. */
-const ADMIN_PERMISSIONS = [
-  'sales.bill',
-  // Deliberately separate from `sales.bill`. Typing a price over the one the
-  // catalogue says is how a till gets robbed: ring the item at zero, take the
-  // cash, and the books balance. A cashier bills; a supervisor discounts.
-  'sales.override_price',
-  'sales.refund',
-  'inventory.view',
-  'inventory.adjust',
-  'purchase.manage',
-  'closing.perform',
-  'closing.approve',
-  'admin.manage',
-];
+/**
+ * Permissions a freshly created company's Admin role gets: everything, both
+ * tiers. Derived from the enums rather than listed by hand, so a screen added
+ * later is one an Admin can reach on the day it ships — the alternative is a
+ * new screen nobody in any company can open until someone remembers this list.
+ */
+const ADMIN_PERMISSIONS: string[] = [...ACTION_PERMISSIONS, ...SCREEN_PERMISSIONS];
 
+/**
+ * The roles a new company starts with. Each is normalised on the way in, so
+ * these lists say what the role is *for* and the implications (a screen for
+ * every action, `inventory.view` alongside any inventory screen) are filled in
+ * by the same function that governs a hand-edited role.
+ */
 const DEFAULT_ROLES = [
   { name: 'Admin', permissions: ADMIN_PERMISSIONS },
-  { name: 'Manager', permissions: ADMIN_PERMISSIONS.filter((p) => p !== 'admin.manage') },
-  { name: 'Cashier', permissions: ['sales.bill', 'inventory.view', 'closing.perform'] },
-];
+  {
+    name: 'Manager',
+    // Everything except administering the company itself.
+    permissions: ADMIN_PERMISSIONS.filter(
+      (p) => p !== 'admin.manage' && p !== 'view.admin' && !p.startsWith('view.onboarding.'),
+    ),
+  },
+  {
+    name: 'Cashier',
+    // The counter, and only the counter: bill, look a price or a stock figure
+    // up, count the drawer at close. Deliberately no price override.
+    permissions: [
+      'sales.bill',
+      'view.sales.billing',
+      'view.sales.invoices',
+      'view.inventory.stores',
+      'closing.perform',
+      'view.closing.dayend',
+    ],
+  },
+].map((role) => ({ ...role, permissions: normalizeRolePermissions(role.permissions) }));
 
 const audit = (data: {
   companyId?: string | null;
@@ -413,6 +437,198 @@ export async function registerRoutes(app: FastifyInstance) {
     const query = z.object({ companyId: z.string().optional() }).parse(request.query);
     const { companyId } = requireCompany(who(request), query.companyId);
     return prisma.role.findMany({ where: { companyId }, orderBy: { name: 'asc' } });
+  });
+
+  /**
+   * How many users hold each role. The editor needs it before offering to
+   * delete one, because deleting a role with users in it has to ask where they
+   * go rather than silently stranding them.
+   */
+  app.get('/roles/user-counts', async (request) => {
+    const { companyId } = requireCompany(who(request));
+    const [roles, grouped] = await Promise.all([
+      prisma.role.findMany({ where: { companyId }, select: { id: true } }),
+      prisma.user.groupBy({
+        by: ['roleId'],
+        where: { companyId, roleId: { not: null } },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const counts: Record<string, number> = {};
+    for (const role of roles) counts[role.id] = 0;
+    for (const row of grouped) {
+      if (row.roleId && row.roleId in counts) counts[row.roleId] = row._count._all;
+    }
+    return counts;
+  });
+
+  /**
+   * Refuses any write that would leave the company with no active user able to
+   * administer it.
+   *
+   * `resolveSignInLanding` documents why this is the one guardrail that cannot
+   * be left to the client: a company with no admin cannot be repaired from any
+   * screen, by anybody, so the mistake is permanent and support-only. The check
+   * runs against the world as it will be after the write, not as it is now.
+   */
+  async function assertAdminsRemain(
+    companyId: string,
+    change: { roleId: string; permissions?: string[]; deletedInFavourOf?: string },
+  ): Promise<void> {
+    const [users, roles] = await Promise.all([
+      prisma.user.findMany({
+        where: { companyId, active: true },
+        select: { roleId: true },
+      }),
+      prisma.role.findMany({ where: { companyId }, select: { id: true, permissions: true } }),
+    ]);
+
+    const permissionsByRole = new Map(roles.map((r) => [r.id, r.permissions]));
+    if (change.permissions) permissionsByRole.set(change.roleId, change.permissions);
+
+    const effectiveRoleId = (roleId: string | null): string | null =>
+      roleId === change.roleId && change.deletedInFavourOf ? change.deletedInFavourOf : roleId;
+
+    const administered = users.some((user) => {
+      const roleId = effectiveRoleId(user.roleId);
+      return roleId ? (permissionsByRole.get(roleId) ?? []).includes('admin.manage') : false;
+    });
+
+    if (!administered) {
+      throw new HttpError(
+        409,
+        'This would leave nobody able to administer the company. Grant Administration to another active user first.',
+      );
+    }
+  }
+
+  app.post('/roles', async (request) => {
+    const caller = requireAuth(who(request));
+    const { companyId } = requireCompany(caller);
+    requirePermission(caller, 'admin.manage');
+
+    const body = newRoleSchema.parse(request.body);
+    const name = body.name.trim();
+
+    const clash = await prisma.role.findFirst({ where: { companyId, name } });
+    if (clash) throw new HttpError(409, `A role called ${name} already exists`);
+
+    // Normalised server-side, not merely in the editor: the editor is one
+    // caller of this endpoint, and the rules are the rules regardless of who
+    // wrote the request.
+    const role = await prisma.role.create({
+      data: {
+        companyId,
+        name,
+        system: false,
+        permissions: normalizeRolePermissions(body.permissions),
+      },
+    });
+
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'role',
+      entityId: role.id,
+      action: 'create',
+      summary: `Role ${role.name} created`,
+    });
+    return role;
+  });
+
+  app.patch('/roles/:id', async (request) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const caller = requireAuth(who(request));
+    const { companyId } = requireCompany(caller);
+    requirePermission(caller, 'admin.manage');
+
+    const role = await prisma.role.findFirst({ where: { id, companyId } });
+    if (!role) throw new HttpError(404, 'Role not found');
+    if (role.system) {
+      throw new HttpError(409, `${role.name} is a built-in role and cannot be edited`);
+    }
+
+    const body = rolePatchSchema.parse(request.body);
+    const name = body.name?.trim() ?? role.name;
+
+    if (body.name && name !== role.name) {
+      const clash = await prisma.role.findFirst({ where: { companyId, name, id: { not: id } } });
+      if (clash) throw new HttpError(409, `A role called ${name} already exists`);
+    }
+
+    const permissions = body.permissions
+      ? normalizeRolePermissions(body.permissions)
+      : role.permissions;
+
+    await assertAdminsRemain(companyId, { roleId: id, permissions });
+
+    const updated = await prisma.role.update({
+      where: { id },
+      data: { name, permissions: { set: permissions } },
+    });
+
+    // What was taken away is the part worth being able to read back later; a
+    // grant is visible in the role itself, a revocation is not.
+    const revoked = role.permissions.filter((p) => !permissions.includes(p));
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'role',
+      entityId: id,
+      action: 'update',
+      summary: revoked.length
+        ? `Role ${updated.name} updated; revoked ${revoked.join(', ')}`
+        : `Role ${updated.name} updated`,
+    });
+    return updated;
+  });
+
+  app.delete('/roles/:id', async (request) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const caller = requireAuth(who(request));
+    const { companyId } = requireCompany(caller);
+    requirePermission(caller, 'admin.manage');
+
+    const body = z.object({ reassignToRoleId: z.string() }).parse(request.body);
+    if (body.reassignToRoleId === id) {
+      throw new HttpError(400, 'Pick a different role to move users to');
+    }
+
+    const role = await prisma.role.findFirst({ where: { id, companyId } });
+    if (!role) throw new HttpError(404, 'Role not found');
+    if (role.system) {
+      throw new HttpError(409, `${role.name} is a built-in role and cannot be deleted`);
+    }
+
+    const target = await prisma.role.findFirst({
+      where: { id: body.reassignToRoleId, companyId },
+    });
+    if (!target) throw new HttpError(400, 'Unknown role to move users to');
+
+    await assertAdminsRemain(companyId, { roleId: id, deletedInFavourOf: target.id });
+
+    // One transaction: a half-applied delete leaves users pointing at a role
+    // that no longer exists, and `roleId` is nullable, so they would silently
+    // hold no permissions at all rather than failing loudly.
+    const moved = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.user.updateMany({
+        where: { companyId, roleId: id },
+        data: { roleId: target.id },
+      });
+      await tx.role.delete({ where: { id } });
+      return count;
+    });
+
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'role',
+      entityId: id,
+      action: 'delete',
+      summary: `Role ${role.name} deleted; ${moved} user(s) moved to ${target.name}`,
+    });
+    return { ok: true, moved };
   });
 
   /* ----------------------------------------------------------------- users */

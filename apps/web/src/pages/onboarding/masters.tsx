@@ -111,7 +111,7 @@ function CategoriesCard() {
     <Card>
       <CardHeader
         title="Categories"
-        description="Drives merchandising order and the tax a new SKU in the category starts on."
+        description="Drives merchandising order and the tax a new product in the category starts on."
       />
       <RecordForm
         submitLabel="Add category"

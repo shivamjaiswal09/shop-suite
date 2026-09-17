@@ -1,4 +1,7 @@
 import {
+  ACTION_PERMISSIONS,
+  normalizeRolePermissions,
+  SCREEN_PERMISSIONS,
   calcTotals,
   priceLine,
   signedQty,
@@ -228,12 +231,33 @@ export function createSeededStore(): InMemoryStore {
   ];
 
   /* ------------------------------------------------------- users & roles */
-  const ownerRole = { id: store.nextId('rol'), companyId, name: 'Owner', system: true, permissions: ['sales.bill', 'sales.refund', 'inventory.view', 'inventory.adjust', 'purchase.manage', 'closing.perform', 'closing.approve', 'admin.manage'] as const };
-  const cashierRole = { id: store.nextId('rol'), companyId, name: 'Cashier', system: true, permissions: ['sales.bill', 'inventory.view', 'closing.perform'] as const };
-  store.roles = [
-    { ...ownerRole, permissions: [...ownerRole.permissions] },
-    { ...cashierRole, permissions: [...cashierRole.permissions] },
-  ];
+  // Both tiers, normalised by the same function the role editor and the API
+  // use — so the seeded roles are exactly what those screens would produce, and
+  // a screen added to NAV_TREE reaches the Owner without editing this line.
+  const ownerRole = {
+    id: store.nextId('rol'),
+    companyId,
+    name: 'Owner',
+    system: true,
+    permissions: normalizeRolePermissions([...ACTION_PERMISSIONS, ...SCREEN_PERMISSIONS]),
+  };
+  const cashierRole = {
+    id: store.nextId('rol'),
+    companyId,
+    name: 'Cashier',
+    system: true,
+    // The counter and nothing else. No price override: that split is the whole
+    // reason the permission exists.
+    permissions: normalizeRolePermissions([
+      'sales.bill',
+      'view.sales.billing',
+      'view.sales.invoices',
+      'view.inventory.stores',
+      'closing.perform',
+      'view.closing.dayend',
+    ]),
+  };
+  store.roles = [ownerRole, cashierRole];
 
   store.users = [
     { id: store.nextId('usr'), companyId, name: 'Ravi Kumar', email: 'owner@nandiretail.in', phone: '+91 98450 11111', roleId: ownerRole.id, storeIds: [], locationIds: [], active: true, isSuperAdmin: false, createdAt: SEED_AT },

@@ -99,7 +99,7 @@ export function LocationStockView({
       />
 
       <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="SKUs tracked" value={String(view.summary.skuCount)} icon={Boxes} />
+        <Stat label="Products tracked" value={String(view.summary.skuCount)} icon={Boxes} />
         <Stat label="Stock value" value={money(view.summary.stockValue)} icon={IndianRupee} />
         {!isAggregate && inboundTotal > 0 ? (
           <Stat
@@ -129,7 +129,7 @@ export function LocationStockView({
         <div className="flex flex-wrap items-center gap-3 border-b border-border p-4">
           <Input
             className="max-w-xs"
-            placeholder="Search SKU code or name…"
+            placeholder="Search product code or name…"
             value={term}
             onChange={(e) => setTerm(e.target.value)}
           />
@@ -148,7 +148,7 @@ export function LocationStockView({
         <Table>
           <thead>
             <tr>
-              <Th>SKU</Th>
+              <Th>Product</Th>
               <Th>{isAggregate ? 'Split by location' : 'Barcode'}</Th>
               <Th className="text-right">On hand</Th>
               <Th className="text-right">Reserved</Th>

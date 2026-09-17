@@ -90,7 +90,7 @@ export function ReceiveTransferDialog({
           <Table>
             <thead>
               <tr>
-                <Th>SKU</Th>
+                <Th>Product</Th>
                 <Th className="w-28 text-right">Dispatched</Th>
                 <Th className="w-32 text-right">Received</Th>
                 <Th className="w-24 text-right">Short</Th>

@@ -1,6 +1,7 @@
+import type { NavNode } from '@shop/core';
 import { NavLink, useLocation } from 'react-router';
 import { cn } from '@/lib/utils';
-import type { NavItem } from './nav';
+import { NAV_ICONS } from './nav';
 
 /**
  * The navigation tree, rendered identically for the desktop sidebar and the
@@ -16,7 +17,7 @@ export function NavList({
   expandAll = false,
   onNavigate,
 }: {
-  items: NavItem[];
+  items: NavNode[];
   /**
    * Show every section's children, not just the open one. The sidebar reveals
    * children on navigation because it is always on screen; the drawer cannot
@@ -32,19 +33,20 @@ export function NavList({
   return (
     <>
       {items.map((item) => {
-        const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
+        const active = item.path === '/' ? pathname === '/' : pathname.startsWith(item.path);
+        const Icon = NAV_ICONS[item.id];
         return (
-          <div key={item.to}>
+          <div key={item.id}>
             <NavLink
-              to={item.to}
-              end={item.to === '/'}
+              to={item.path}
+              end={item.path === '/'}
               onClick={onNavigate}
               className={cn(
                 'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
                 active ? 'bg-primary/10 font-medium text-primary' : 'text-foreground hover:bg-muted',
               )}
             >
-              <item.icon className="h-4 w-4 shrink-0" />
+              {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
               <span className="truncate">{item.label}</span>
             </NavLink>
 
@@ -52,8 +54,8 @@ export function NavList({
               <div className="ml-6 mt-1 space-y-0.5 border-l border-border pl-3">
                 {item.children.map((child) => (
                   <NavLink
-                    key={child.to}
-                    to={child.to}
+                    key={child.id}
+                    to={child.path}
                     onClick={onNavigate}
                     className={({ isActive }) =>
                       cn(

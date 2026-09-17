@@ -2,6 +2,7 @@ import { useIsSuperAdmin, useRestoreSession, useSessionStore } from '@shop/state
 import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
 import { AppShell } from './components/app-shell';
+import { RequireScreen } from './components/require-screen';
 import { PlatformConsolePage } from './pages/platform/companies';
 import { AdministrationPage } from './pages/administration';
 import { DayEndClosingPage } from './pages/closing/day-end';
@@ -103,45 +104,49 @@ export function App() {
       <Route element={<AppShell />}>
         <Route
           index
-          element={hasStore ? <HomePage /> : <Navigate to="/onboarding/locations" replace />}
+          element={
+            <RequireScreen screen="view.home">
+              {hasStore ? <HomePage /> : <Navigate to="/onboarding/locations" replace />}
+            </RequireScreen>
+          }
         />
 
         <Route path="sales">
           <Route index element={<Navigate to="/sales/billing" replace />} />
-          <Route path="billing" element={<QuickBillingPage />} />
-          <Route path="orders" element={<OrdersPage />} />
-          <Route path="invoices" element={<InvoicesPage />} />
-          <Route path="returns" element={<ReturnsPage />} />
+          <Route path="billing" element={<RequireScreen screen="view.sales.billing"><QuickBillingPage /></RequireScreen>} />
+          <Route path="orders" element={<RequireScreen screen="view.sales.orders"><OrdersPage /></RequireScreen>} />
+          <Route path="invoices" element={<RequireScreen screen="view.sales.invoices"><InvoicesPage /></RequireScreen>} />
+          <Route path="returns" element={<RequireScreen screen="view.sales.returns"><ReturnsPage /></RequireScreen>} />
         </Route>
 
         <Route path="inventory">
           <Route index element={<Navigate to="/inventory/stores" replace />} />
-          <Route path="stores" element={<StoreStockPage />} />
-          <Route path="warehouses" element={<WarehouseStockPage />} />
-          <Route path="all" element={<AllInventoryPage />} />
+          <Route path="stores" element={<RequireScreen screen="view.inventory.stores"><StoreStockPage /></RequireScreen>} />
+          <Route path="warehouses" element={<RequireScreen screen="view.inventory.warehouses"><WarehouseStockPage /></RequireScreen>} />
+          <Route path="all" element={<RequireScreen screen="view.inventory.all"><AllInventoryPage /></RequireScreen>} />
           {/* Old single-screen route */}
           <Route path="overview" element={<Navigate to="/inventory/stores" replace />} />
           <Route path="products" element={<Navigate to="/onboarding/products" replace />} />
-          <Route path="transfers" element={<TransfersPage />} />
-          <Route path="replenishment" element={<ReplenishmentPage />} />
-          <Route path="movements" element={<MovementsPage />} />
+          <Route path="transfers" element={<RequireScreen screen="view.inventory.transfers"><TransfersPage /></RequireScreen>} />
+          <Route path="replenishment" element={<RequireScreen screen="view.inventory.replenishment"><ReplenishmentPage /></RequireScreen>} />
+          <Route path="movements" element={<RequireScreen screen="view.inventory.movements"><MovementsPage /></RequireScreen>} />
         </Route>
 
         <Route path="onboarding">
           <Route index element={<Navigate to="/onboarding/locations" replace />} />
-          <Route path="locations" element={<OnboardLocationsPage />} />
-          <Route path="products" element={<ProductsPage />} />
-          <Route path="users" element={<OnboardUsersPage />} />
-          <Route path="masters" element={<OnboardMastersPage />} />
+          <Route path="locations" element={<RequireScreen screen="view.onboarding.locations"><OnboardLocationsPage /></RequireScreen>} />
+          <Route path="products" element={<RequireScreen screen="view.onboarding.products"><ProductsPage /></RequireScreen>} />
+          <Route path="users" element={<RequireScreen screen="view.onboarding.users"><OnboardUsersPage /></RequireScreen>} />
+          <Route path="masters" element={<RequireScreen screen="view.onboarding.masters"><OnboardMastersPage /></RequireScreen>} />
         </Route>
 
-        <Route path="purchases" element={<PurchasesPage />} />
+        <Route path="purchases" element={<RequireScreen screen="view.purchases"><PurchasesPage /></RequireScreen>} />
         <Route path="closing">
           <Route index element={<Navigate to="/closing/day-end" replace />} />
-          <Route path="day-end" element={<DayEndClosingPage />} />
-          <Route path="reconciliation" element={<ReconciliationPage />} />
+          <Route path="day-end" element={<RequireScreen screen="view.closing.dayend"><DayEndClosingPage /></RequireScreen>} />
+          <Route path="reconciliation" element={<RequireScreen screen="view.closing.reconciliation"><ReconciliationPage /></RequireScreen>} />
         </Route>
-        <Route path="admin" element={<AdministrationPage />} />
+        <Route path="admin" element={<RequireScreen screen="view.admin"><AdministrationPage /></RequireScreen>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

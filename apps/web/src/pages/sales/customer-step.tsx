@@ -1,5 +1,25 @@
-import type { BillFieldConfig } from '@shop/core';
+import { type BillFieldConfig, gstinProblem } from '@shop/core';
 import { Input, Label } from '@/components/ui/input';
+
+/**
+ * What to say about a GSTIN that looks wrong, or nothing.
+ *
+ * Held back until the number is as long as a GSTIN, so the warning arrives
+ * when there is enough typed to be wrong rather than at the third character.
+ * It never blocks the bill: a wrong-but-plausible GSTIN is the customer's to
+ * fix, and stopping a sale at the counter over one helps nobody.
+ */
+function gstinWarning(field: BillFieldConfig, value: string): string | undefined {
+  if (field.builtin !== 'gstin' || value.trim().length < 15) return undefined;
+  switch (gstinProblem(value)) {
+    case 'format':
+      return 'This does not look like a GSTIN.';
+    case 'checksum':
+      return 'Check this GSTIN — its last character does not match the rest.';
+    default:
+      return undefined;
+  }
+}
 
 /**
  * The configured customer details, in the order an admin set.
@@ -30,21 +50,30 @@ export function CustomerStep({
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      {fields.map((field) => (
-        <div key={field.id}>
-          <Label htmlFor={`bf-${field.key}`}>{field.label}</Label>
-          <Input
-            id={`bf-${field.key}`}
-            required={field.required}
-            inputMode={field.type === 'number' ? 'numeric' : field.type === 'phone' ? 'tel' : 'text'}
-            value={values[field.key] ?? ''}
-            onChange={(e) => onChange(field.key, e.target.value)}
-          />
-          {missingKeys.has(field.key) ? (
-            <p className="mt-1 text-xs text-destructive">{field.label} is required.</p>
-          ) : null}
-        </div>
-      ))}
+      {fields.map((field) => {
+        const value = values[field.key] ?? '';
+        const warning = gstinWarning(field, value);
+        return (
+          <div key={field.id}>
+            <Label htmlFor={`bf-${field.key}`}>{field.label}</Label>
+            <Input
+              id={`bf-${field.key}`}
+              required={field.required}
+              inputMode={
+                field.type === 'number' ? 'numeric' : field.type === 'phone' ? 'tel' : 'text'
+              }
+              value={value}
+              onChange={(e) => onChange(field.key, e.target.value)}
+            />
+            {missingKeys.has(field.key) ? (
+              <p className="mt-1 text-xs text-destructive">{field.label} is required.</p>
+            ) : warning ? (
+              // Amber, not destructive: this is worth a second look, not a stop.
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">{warning}</p>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

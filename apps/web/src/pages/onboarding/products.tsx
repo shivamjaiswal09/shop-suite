@@ -66,11 +66,11 @@ export function ProductsPage() {
   return (
     <>
       <PageHeader
-        title="Products & SKUs"
-        description={`${products.data?.length ?? 0} products · ${skus.data?.length ?? 0} SKUs · the catalogue every store sells from`}
+        title="Products"
+        description={`${skus.data?.length ?? 0} products · the catalogue every store sells from`}
         actions={
           <Button onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" /> New SKU
+            <Plus className="h-4 w-4" /> New product
           </Button>
         }
       />
@@ -90,7 +90,6 @@ export function ProductsPage() {
         <Table>
           <thead>
             <tr>
-              <Th>SKU</Th>
               <Th>Product</Th>
               <Th>Category</Th>
               <Th>Barcode</Th>
@@ -105,21 +104,21 @@ export function ProductsPage() {
           </thead>
           <tbody>
             {visible.length === 0 ? (
-              <EmptyRow colSpan={11}>No SKUs match.</EmptyRow>
+              <EmptyRow colSpan={10}>No products match.</EmptyRow>
             ) : (
               visible.map((sku) => {
                 const product = productById.get(sku.productId);
                 return (
                   <tr key={sku.id}>
                     <Td>
-                      <p className="font-medium">{sku.name}</p>
-                      <p className="text-xs text-muted-foreground">{sku.code}</p>
-                    </Td>
-                    <Td>
-                      <p>{product?.name ?? '—'}</p>
-                      {product?.brand ? (
-                        <p className="text-xs text-muted-foreground">{product.brand}</p>
-                      ) : null}
+                      {/* One name. The product's, not the item's — they are the
+                          same thing now, and the code below identifies the row
+                          where two products were onboarded under one name. */}
+                      <p className="font-medium">{product?.name ?? sku.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {sku.code}
+                        {product?.brand ? ` · ${product.brand}` : ''}
+                      </p>
                     </Td>
                     <Td>
                       <Badge>{categories.get(product?.categoryId ?? '')?.name ?? '—'}</Badge>
@@ -148,10 +147,10 @@ export function ProductsPage() {
                             id: sku.id,
                             title: `Edit ${sku.name}`,
                             fields: [
-                              { name: 'code', label: 'SKU code', initial: sku.code, required: true },
+                              { name: 'code', label: 'Product code', initial: sku.code, required: true },
                               { name: 'barcode', label: 'Barcode', initial: sku.barcode ?? '' },
                               { name: 'hsnCode', label: 'HSN code', initial: sku.hsnCode ?? '' },
-                              { name: 'name', label: 'Name', initial: sku.name, required: true, span: 2 },
+
                               {
                                 name: 'uomId',
                                 label: 'Unit',
@@ -195,8 +194,8 @@ export function ProductsPage() {
                                 // — silently, if the form does not admit it.
                                 label:
                                   skusPerProduct.get(sku.productId)! > 1
-                                    ? `Product name (shared by ${skusPerProduct.get(sku.productId)} SKUs)`
-                                    : 'Product name',
+                                    ? `Name (shared by ${skusPerProduct.get(sku.productId)} products)`
+                                    : 'Name',
                                 initial: product?.name ?? '',
                                 span: 2,
                               },
@@ -321,7 +320,10 @@ export function ProductsPage() {
               // passed through: the field yields '' when blank, which is
               // neither a code nor an instruction to clear.
               hsnCode: v.hsnCode?.trim() || null,
-              name: v.name,
+              // The same name on both rows. They are one thing in the UI, so
+              // letting them differ would only reintroduce the second level by
+              // the back door — and the invoice line snapshots this one.
+              name: v.productName,
               uomId: v.uomId,
               taxId: v.taxId,
               purchasePrice: Number(v.purchasePrice) || 0,

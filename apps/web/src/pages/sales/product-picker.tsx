@@ -79,7 +79,7 @@ export function ProductPicker({
           <Input
             autoFocus
             className="h-10 pl-9"
-            placeholder="Search by product, SKU, brand…"
+            placeholder="Search by name, code, barcode…"
             value={term}
             onChange={(e) => setTerm(e.target.value)}
           />
@@ -136,7 +136,11 @@ export function ProductPicker({
                 className="flex items-start justify-between gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-ring hover:bg-muted disabled:opacity-50"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{sku.name}</p>
+                  {/* The product's name. Falls back to the item's only for rows
+                      onboarded before the two became one thing. */}
+                  <p className="truncate text-sm font-medium">
+                    {productById.get(sku.productId)?.name ?? sku.name}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {categoryById.get(productById.get(sku.productId)?.categoryId ?? '')?.name ?? '—'} · {sku.code}
                   </p>

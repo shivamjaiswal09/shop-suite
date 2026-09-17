@@ -44,7 +44,7 @@ export function NewPurchaseOrderDialog({ open, onClose }: { open: boolean; onClo
     if (!user) return;
     setError(null);
     if (lines.length === 0) {
-      setError('Add at least one SKU.');
+      setError('Add at least one product.');
       return;
     }
     try {
@@ -110,7 +110,7 @@ export function NewPurchaseOrderDialog({ open, onClose }: { open: boolean; onClo
         </div>
 
         <div>
-          <Label htmlFor="po-sku">Add SKU</Label>
+          <Label htmlFor="po-sku">Add product</Label>
           <Input
             id="po-sku"
             placeholder="Scan barcode or search…"
@@ -150,7 +150,7 @@ export function NewPurchaseOrderDialog({ open, onClose }: { open: boolean; onClo
           <Table>
             <thead>
               <tr>
-                <Th>SKU</Th>
+                <Th>Product</Th>
                 <Th className="w-24 text-right">Qty</Th>
                 <Th className="w-28 text-right">Unit cost</Th>
                 <Th className="w-24 text-right">Value</Th>

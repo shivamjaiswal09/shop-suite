@@ -37,15 +37,15 @@ describe('normalizeRolePermissions', () => {
 
   it('drops strings that are not permissions', () => {
     expect(normalizeRolePermissions(['sales.bill', 'sales.bil', 'nonsense'] as string[])).toEqual([
-      'sales.bill',
       'view.sales.billing',
+      'sales.bill',
     ]);
   });
 
   it('de-duplicates', () => {
     expect(normalizeRolePermissions(['sales.bill', 'sales.bill'])).toEqual([
-      'sales.bill',
       'view.sales.billing',
+      'sales.bill',
     ]);
   });
 

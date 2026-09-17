@@ -175,7 +175,7 @@ export const NAV_TREE: readonly NavNode[] = [
       },
       {
         id: 'onboarding.products',
-        label: 'Products & SKUs',
+        label: 'Products',
         path: '/onboarding/products',
         screen: 'view.onboarding.products',
         actions: ['inventory.adjust'],

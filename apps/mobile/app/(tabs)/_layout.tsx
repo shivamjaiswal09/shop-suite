@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCan, useCanAny, useCartCount, useSessionStore } from '@shop/state';
+import { useCan, useCartCount, useSessionStore } from '@shop/state';
 import { Redirect, Tabs } from 'expo-router';
 import { StyleSheet } from 'react-native';
 import { StoreSwitcher } from '@/components/store-switcher';
@@ -22,9 +22,13 @@ export default function TabsLayout() {
   const signedIn = useSessionStore((s) => s.user !== null);
   const cartCount = useCartCount();
 
-  const canBill = useCan('sales.bill');
-  const canViewInventory = useCan('inventory.view');
-  const canClose = useCanAny(['closing.perform', 'closing.approve']);
+  // Gated on the same screen keys the web sidebar reads, from the same shared
+  // tree — which is what makes "tick Quick Billing" light up the Bill tab here
+  // without anybody maintaining a second list.
+  const canBill = useCan('view.sales.billing');
+  const canViewInventory = useCan('view.inventory.stores');
+  const canClose = useCan('view.closing.dayend');
+  const canSeeHome = useCan('view.home');
 
   if (!signedIn) return <Redirect href="/" />;
 
@@ -50,15 +54,17 @@ export default function TabsLayout() {
         tabBarBadgeStyle: { backgroundColor: colors.destructive, color: colors.destructiveForeground },
       }}
     >
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
-          ),
-        }}
-      />
+      <Tabs.Protected guard={canSeeHome}>
+        <Tabs.Screen
+          name="home"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
+            ),
+          }}
+        />
+      </Tabs.Protected>
       <Tabs.Protected guard={canBill}>
         <Tabs.Screen
           name="bill"

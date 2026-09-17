@@ -17,6 +17,8 @@ import {
   productSchema,
   reasonCodeSchema,
   returnableLines,
+  roleSchema,
+  normalizeRolePermissions,
   roundMoney,
   roundQty,
   signedQty,
@@ -25,6 +27,7 @@ import {
   storeWarehouseLinkSchema,
   summarizeSalesByMethod,
   supplierSchema,
+  generateItemCode,
   taxSchema,
   unitOfMeasureSchema,
   userSchema,
@@ -42,6 +45,7 @@ import {
   type StockMovement,
   type StockReservation,
   type StockTransfer,
+  type Role,
 } from '@shop/core';
 import type {
   AuditRepository,
@@ -380,7 +384,126 @@ export class MockRepositories implements Repositories {
           actorId,
         }),
       ),
+
+    roleUserCounts: async () => {
+      const counts: Record<string, number> = {};
+      for (const role of this.store.roles) counts[role.id] = 0;
+      for (const user of this.store.users) {
+        if (user.roleId in counts) counts[user.roleId] += 1;
+      }
+      return tick(counts);
+    },
+
+    createRole: async (input, actorId) => {
+      const name = input.name.trim();
+      if (this.store.roles.some((r) => r.name.toLowerCase() === name.toLowerCase())) {
+        throw new Error(`A role called ${name} already exists`);
+      }
+      const role = roleSchema.parse({
+        id: this.store.nextId('rol'),
+        companyId: this.store.company.id,
+        name,
+        permissions: normalizeRolePermissions(input.permissions),
+        system: false,
+      });
+      this.store.roles.push(role);
+      this.store.bumpAudit({
+        entity: 'role',
+        entityId: role.id,
+        action: 'create',
+        summary: `Role ${role.name} created`,
+        actorId,
+      });
+      return tick(role);
+    },
+
+    updateRole: async (id, patch, actorId) => {
+      const role = this.store.roles.find((r) => r.id === id);
+      if (!role) throw new NotFoundError('Role', id);
+      if (role.system) throw new Error(`${role.name} is a built-in role and cannot be edited`);
+
+      const name = patch.name?.trim() ?? role.name;
+      if (
+        patch.name &&
+        this.store.roles.some((r) => r.id !== id && r.name.toLowerCase() === name.toLowerCase())
+      ) {
+        throw new Error(`A role called ${name} already exists`);
+      }
+
+      const permissions = patch.permissions
+        ? normalizeRolePermissions(patch.permissions)
+        : role.permissions;
+
+      this.assertAdminsRemain({ ...role, name, permissions });
+
+      const updated = roleSchema.parse({ ...role, name, permissions });
+      this.store.roles[this.store.roles.indexOf(role)] = updated;
+      this.store.bumpAudit({
+        entity: 'role',
+        entityId: id,
+        action: 'update',
+        summary: `Role ${updated.name} updated`,
+        actorId,
+      });
+      return tick(updated);
+    },
+
+    deleteRole: async (id, reassignToRoleId, actorId) => {
+      const role = this.store.roles.find((r) => r.id === id);
+      if (!role) throw new NotFoundError('Role', id);
+      if (role.system) throw new Error(`${role.name} is a built-in role and cannot be deleted`);
+      if (reassignToRoleId === id) throw new Error('Pick a different role to move users to');
+
+      const target = this.store.roles.find((r) => r.id === reassignToRoleId);
+      if (!target) throw new NotFoundError('Role', reassignToRoleId);
+
+      // Deleting the role is what removes its admins, so the check runs against
+      // the world as it will be: everyone moved, this role gone.
+      const moved = this.store.users.filter((u) => u.roleId === id);
+      this.assertAdminsRemain(undefined, { removeRoleId: id, movingTo: target });
+
+      for (const user of moved) user.roleId = target.id;
+      this.store.roles.splice(this.store.roles.indexOf(role), 1);
+      this.store.bumpAudit({
+        entity: 'role',
+        entityId: id,
+        action: 'delete',
+        summary: `Role ${role.name} deleted; ${moved.length} user(s) moved to ${target.name}`,
+        actorId,
+      });
+      await tick(undefined);
+    },
   };
+
+  /**
+   * Refuses any change that would leave the company with no active user able to
+   * administer it.
+   *
+   * This is the guardrail that matters most: `resolveSignInLanding` documents
+   * that a company with no admin cannot be repaired from any screen, so the
+   * mistake is permanent and support-only. It is checked here rather than in
+   * the dialog because the dialog is not the only caller.
+   */
+  private assertAdminsRemain(
+    replacement?: Role,
+    removal?: { removeRoleId: string; movingTo: Role },
+  ): void {
+    const roleFor = (roleId: string): Role | undefined => {
+      if (removal && roleId === removal.removeRoleId) return removal.movingTo;
+      if (replacement && roleId === replacement.id) return replacement;
+      return this.store.roles.find((r) => r.id === roleId);
+    };
+
+    const stillAdministered = this.store.users.some(
+      (user) => user.active && roleFor(user.roleId)?.permissions.includes('admin.manage'),
+    );
+
+    if (!stillAdministered) {
+      throw new Error(
+        'This would leave nobody able to administer the company. Grant Administration to another active user first.',
+      );
+    }
+  }
 
   masters: MasterRepository = {
     categories: (all) =>
@@ -868,16 +991,21 @@ export class MockRepositories implements Repositories {
       if (barcode && this.store.skus.some((s) => s.barcode === barcode)) {
         throw new DuplicateBarcodeError(barcode);
       }
-      if (this.store.skus.some((s) => s.code.toLowerCase() === input.code.trim().toLowerCase())) {
-        throw new Error(`SKU code ${input.code} already exists`);
+      const name = input.name?.trim() || parent.name;
+      // Generated from the name when the form does not ask for one, against the
+      // codes already in use so it is free by construction.
+      const code =
+        input.code?.trim() || generateItemCode(name, this.store.skus.map((s) => s.code));
+      if (this.store.skus.some((s) => s.code.toLowerCase() === code.toLowerCase())) {
+        throw new Error(`SKU code ${code} already exists`);
       }
 
       const sku = skuSchema.parse({
         id: this.store.nextId('sku'),
         productId: input.productId,
-        code: input.code.trim(),
+        code,
         // A bill prints the SKU name, so an unnamed SKU borrows its product's.
-        name: input.name?.trim() || parent.name,
+        name,
         barcode,
         hsnCode: input.hsnCode?.trim() || null,
         uomId: input.uomId,

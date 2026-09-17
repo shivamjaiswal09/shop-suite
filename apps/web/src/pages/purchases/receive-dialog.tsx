@@ -104,7 +104,7 @@ export function ReceiveGoodsDialog({
           <Table>
             <thead>
               <tr>
-                <Th>SKU</Th>
+                <Th>Product</Th>
                 <Th className="text-right">Ordered</Th>
                 <Th className="text-right">Outstanding</Th>
                 <Th className="w-24 text-right">Receive</Th>

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { Permission } from '@shop/core';
+import type { ScreenPermission } from '@shop/core';
 import {
   useCan,
   useCompany,
@@ -29,42 +29,42 @@ import { fontSize, spacing, useTheme, useThemeMode } from '@/lib/theme';
  * and only the parts this user's role could actually reach on the web app.
  * Listing Administration to a cashier would just be advertising a locked door.
  */
-const ON_WEB: { icon: IconName; label: string; detail: string; permission: Permission }[] = [
+const ON_WEB: { icon: IconName; label: string; detail: string; permission: ScreenPermission }[] = [
   {
     icon: 'swap-horizontal-outline',
     label: 'Transfers',
     detail: 'Dispatch and receive between locations',
-    permission: 'inventory.adjust',
+    permission: 'view.inventory.transfers',
   },
   {
     icon: 'cart-outline',
     label: 'Purchases',
     detail: 'Purchase orders and goods receipt',
-    permission: 'purchase.manage',
+    permission: 'view.purchases',
   },
   {
     icon: 'arrow-undo-outline',
     label: 'Returns & orders',
     detail: 'Sales returns, reserved orders',
-    permission: 'sales.refund',
+    permission: 'view.sales.returns',
   },
   {
     icon: 'pricetags-outline',
     label: 'Products & masters',
     detail: 'SKUs, categories, taxes, customers',
-    permission: 'inventory.adjust',
+    permission: 'view.onboarding.products',
   },
   {
     icon: 'people-outline',
     label: 'Users & roles',
     detail: 'Access and permissions',
-    permission: 'admin.manage',
+    permission: 'view.onboarding.users',
   },
   {
     icon: 'settings-outline',
     label: 'Administration',
     detail: 'Company settings and audit log',
-    permission: 'admin.manage',
+    permission: 'view.admin',
   },
 ];
 

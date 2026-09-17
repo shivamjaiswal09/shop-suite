@@ -61,7 +61,7 @@ export function HomePage() {
           hint={`${invoices.data?.length ?? 0} invoices`}
           icon={IndianRupee}
         />
-        <Stat label="Stock value" value={money(stock.summary.stockValue)} hint={`${stock.summary.skuCount} SKUs`} icon={Receipt} />
+        <Stat label="Stock value" value={money(stock.summary.stockValue)} hint={`${stock.summary.skuCount} products`} icon={Receipt} />
         <Stat
           label="Low stock"
           value={String(stock.summary.lowStock)}
@@ -124,7 +124,7 @@ export function HomePage() {
           <Table>
             <thead>
               <tr>
-                <Th>SKU</Th>
+                <Th>Product</Th>
                 <Th className="text-right">Available</Th>
                 <Th className="text-right">Min</Th>
                 <Th className="text-right">Status</Th>

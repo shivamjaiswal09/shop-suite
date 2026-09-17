@@ -1,19 +1,26 @@
 import {
+  useCreateRole,
   useCreateUser,
+  useDeleteRole,
   useLocations,
+  useRoleUserCounts,
   useRoles,
   useSessionStore,
+  useUpdateRole,
   useUpdateUser,
   useUsers,
 } from '@shop/state';
+import { navNodeFor, type ScreenPermission } from '@shop/core';
 import { useMemo, useState } from 'react';
-import { Pencil } from 'lucide-react';
+import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
 import { EmptyRow, Table, Td, Th } from '@/components/ui/table';
 import { activeField, EditDialog, type EditTarget } from './edit-dialog';
+import { DeleteRoleDialog, type DeleteRoleTarget } from './delete-role-dialog';
+import { duplicateOf, RoleEditor, roleDraft, type RoleDraft } from './role-editor';
 import { RecordForm, type FormValues } from './record-form';
 
 const ALL_STORES = '__all__';
@@ -25,7 +32,14 @@ export function OnboardUsersPage() {
   const locations = useLocations('store');
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
+  const roleCounts = useRoleUserCounts();
+  const createRole = useCreateRole();
+  const updateRole = useUpdateRole();
+  const deleteRole = useDeleteRole();
   const [editing, setEditing] = useState<EditTarget | null>(null);
+  const [roleDraftState, setRoleDraftState] = useState<RoleDraft | null>(null);
+  const [roleError, setRoleError] = useState<string>();
+  const [deleting, setDeleting] = useState<DeleteRoleTarget | null>(null);
 
   const roleById = useMemo(() => new Map((roles.data ?? []).map((r) => [r.id, r])), [roles.data]);
   const storeById = useMemo(
@@ -164,31 +178,138 @@ export function OnboardUsersPage() {
         </Card>
 
         <Card>
-          <CardHeader title="Roles & permissions" description="Fixed in Phase 1." />
+          <CardHeader
+            title="Roles & permissions"
+            description="What each role sees in the sidebar and the phone app, and what it may do there."
+            action={
+              <Button size="sm" onClick={() => setRoleDraftState(roleDraft())}>
+                <Plus className="h-3.5 w-3.5" /> New role
+              </Button>
+            }
+          />
           <Table>
             <thead>
               <tr>
                 <Th>Role</Th>
-                <Th>Permissions</Th>
+                <Th>Sees</Th>
+                <Th className="text-right">Users</Th>
+                <Th className="w-56 text-right">Actions</Th>
               </tr>
             </thead>
             <tbody>
-              {(roles.data ?? []).map((role) => (
-                <tr key={role.id}>
-                  <Td className="font-medium">{role.name}</Td>
-                  <Td>
-                    <div className="flex flex-wrap gap-1">
-                      {role.permissions.map((permission) => (
-                        <Badge key={permission}>{permission}</Badge>
-                      ))}
-                    </div>
-                  </Td>
-                </tr>
-              ))}
+              {(roles.data ?? []).map((role) => {
+                const screens = role.permissions.filter((p) => p.startsWith('view.'));
+                const userCount = roleCounts.data?.[role.id] ?? 0;
+                return (
+                  <tr key={role.id}>
+                    <Td>
+                      <p className="font-medium">{role.name}</p>
+                      {role.system ? (
+                        <p className="text-xs text-muted-foreground">Built-in</p>
+                      ) : null}
+                    </Td>
+                    <Td>
+                      <div className="flex flex-wrap gap-1">
+                        {/* Named screens, not raw keys — `view.inventory.stores`
+                            tells an admin nothing that "Store Stock" does not. */}
+                        {screens.slice(0, 4).map((permission) => (
+                          <Badge key={permission}>
+                            {navNodeFor(permission as ScreenPermission)?.label ?? permission}
+                          </Badge>
+                        ))}
+                        {screens.length > 4 ? (
+                          <Badge tone="neutral">+{screens.length - 4} more</Badge>
+                        ) : null}
+                        {screens.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">Nothing</span>
+                        ) : null}
+                      </div>
+                    </Td>
+                    <Td className="text-right text-sm">{userCount}</Td>
+                    <Td className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setRoleDraftState(roleDraft(role))}
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> {role.system ? 'View' : 'Edit'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setRoleDraftState(duplicateOf(role))}
+                        >
+                          <Copy className="h-3.5 w-3.5" /> Duplicate
+                        </Button>
+                        {!role.system ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleting({ role, userCount })}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> Delete
+                          </Button>
+                        ) : null}
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
             </tbody>
           </Table>
         </Card>
       </div>
+
+      <RoleEditor
+        draft={roleDraftState}
+        pending={createRole.isPending || updateRole.isPending}
+        error={roleError}
+        onClose={() => {
+          setRoleDraftState(null);
+          setRoleError(undefined);
+        }}
+        onSave={async (draft) => {
+          if (!actor) return;
+          setRoleError(undefined);
+          try {
+            if (draft.id) {
+              await updateRole.mutateAsync({
+                id: draft.id,
+                actorId: actor.id,
+                patch: { name: draft.name, permissions: draft.permissions },
+              });
+            } else {
+              await createRole.mutateAsync({
+                input: { name: draft.name, permissions: draft.permissions },
+                actorId: actor.id,
+              });
+            }
+            setRoleDraftState(null);
+          } catch (error) {
+            // Shown in the dialog rather than thrown away: every one of these
+            // is a guardrail explaining what to fix — the last admin, a name
+            // already taken — and closing the dialog would lose the edit too.
+            setRoleError(error instanceof Error ? error.message : 'Could not save the role');
+          }
+        }}
+      />
+
+      <DeleteRoleDialog
+        target={deleting}
+        roles={roles.data ?? []}
+        pending={deleteRole.isPending}
+        onClose={() => setDeleting(null)}
+        onConfirm={async (reassignToRoleId) => {
+          if (!actor) return;
+          await deleteRole.mutateAsync({
+            id: deleting!.role.id,
+            reassignToRoleId,
+            actorId: actor.id,
+          });
+          setDeleting(null);
+        }}
+      />
 
       <EditDialog
         target={editing}

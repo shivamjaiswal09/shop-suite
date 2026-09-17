@@ -91,7 +91,7 @@ export function PriceEditor({
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            title="Back to the SKU's own price"
+            title="Back to the product's own price"
             onClick={onReset}
           >
             <RotateCcw className="h-3 w-3" />

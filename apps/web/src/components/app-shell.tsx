@@ -7,7 +7,7 @@ import { MobileNav } from './mobile-nav';
 import { NavList } from './nav-list';
 import { StoreSwitcher } from './store-switcher';
 import { Button } from './ui/button';
-import { NAV } from './nav';
+import { visibleNav } from '@shop/core';
 
 export function AppShell() {
   const { pathname } = useLocation();
@@ -25,14 +25,14 @@ export function AppShell() {
   // `usePermissions` is empty while the role master loads, so a gated item stays
   // hidden until the answer is known rather than flashing in and disappearing.
   const granted = usePermissions();
-  const visibleNav = useMemo(
-    () => NAV.filter((item) => !item.permission || granted.has(item.permission)),
-    [granted],
-  );
+  // Pruned by the shared helper, which drops a hidden child and then drops the
+  // group once it has nothing left to show — so Inventory disappears rather
+  // than remaining as a heading over an empty list.
+  const nav = useMemo(() => visibleNav(granted), [granted]);
 
   return (
     <div className="flex min-h-screen bg-background">
-      <MobileNav open={menuOpen} onClose={() => setMenuOpen(false)} items={visibleNav} />
+      <MobileNav open={menuOpen} onClose={() => setMenuOpen(false)} items={nav} />
 
       <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-card lg:flex">
         <div className="flex items-center gap-2 border-b border-border px-5 py-4">
@@ -46,7 +46,7 @@ export function AppShell() {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-          <NavList items={visibleNav} />
+          <NavList items={nav} />
         </nav>
 
         <div className="border-t border-border p-3">

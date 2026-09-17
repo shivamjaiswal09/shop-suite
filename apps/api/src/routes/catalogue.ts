@@ -13,6 +13,7 @@ import type {
   Tax,
   UnitOfMeasure,
 } from '@prisma/client';
+import { generateItemCode } from '@shop/core';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -1472,9 +1473,10 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
       .object({
         companyId: z.string().optional(),
         productId: z.string(),
-        // The code is the one thing a SKU cannot be created without: it is its
-        // identity in search, on a bill, and in every import a shop ever does.
-        code: z.string().min(1),
+        // Generated from the name when the form does not supply one. It is
+        // still the item's identity in search, on a bill and in every import a
+        // shop ever does — it just no longer has to be typed.
+        code: z.string().trim().optional(),
         name: z.string().trim().optional(),
         barcode: z.string().trim().optional(),
         hsnCode: z.string().trim().optional(),
@@ -1501,10 +1503,19 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
     // Null rather than '', so any number of SKUs can go without one. Only a
     // real barcode is checked for collisions — absence cannot collide.
     const barcode = body.barcode || null;
-    const code = body.code.trim();
     // A SKU always carries a name because it is printed on the bill; when the
     // form does not ask for one, the product it belongs to supplies it.
     const name = body.name || parent.name;
+    // Derived against the codes already in this company, so a generated one is
+    // free by construction rather than by a retry after a collision.
+    const code =
+      body.code ||
+      generateItemCode(
+        name,
+        (await prisma.sku.findMany({ where: { companyId }, select: { code: true } })).map(
+          (row) => row.code,
+        ),
+      );
     if (barcode) {
       await assertFree(
         prisma.sku.findFirst({ where: { companyId, barcode } }),

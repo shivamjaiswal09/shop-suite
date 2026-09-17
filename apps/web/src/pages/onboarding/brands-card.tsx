@@ -81,7 +81,7 @@ export function BrandsCard() {
     <Card>
       <CardHeader
         title="Brands"
-        description="Brands and the sub-brands under them. A SKU picks a brand, then one of its sub-brands."
+        description="Brands and the sub-brands under them. A product picks a brand, then one of its sub-brands."
       />
 
       <CardBody className="space-y-3 border-b border-border">

@@ -73,7 +73,7 @@ export function MovementsPage() {
           <thead>
             <tr>
               <Th>When</Th>
-              <Th>SKU</Th>
+              <Th>Product</Th>
               <Th>Type</Th>
               <Th className="text-right">Qty</Th>
               <Th>Reference</Th>

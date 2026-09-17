@@ -2,10 +2,8 @@ import { subBrandsOf, topLevelBrands } from '@shop/core';
 import {
   useBrands,
   useCategories,
-  useCategoryMap,
   useCreateProduct,
   useCreateSku,
-  useProducts,
   useLocations,
   useSessionStore,
   useTaxes,
@@ -16,10 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Input, Label, Select } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 
-const NEW_PRODUCT = '__new__';
 
 interface FormState {
-  productId: string;
   newProductName: string;
   newProductCategoryId: string;
   newProductBrandId: string;
@@ -39,7 +35,6 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
-  productId: NEW_PRODUCT,
   newProductName: '',
   newProductCategoryId: '',
   newProductBrandId: '',
@@ -66,9 +61,7 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
   const user = useSessionStore((s) => s.user);
   const store = useSessionStore((s) => s.store);
   const locations = useLocations();
-  const products = useProducts();
   const categories = useCategories();
-  const categoryById = useCategoryMap();
   const uoms = useUnitsOfMeasure();
   const taxes = useTaxes();
   const brands = useBrands();
@@ -86,9 +79,7 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
   // list. An explicit choice on the form still wins.
   const selectedCategory =
     (categories.data ?? []).find(
-      (c) => c.id === (form.productId === NEW_PRODUCT
-        ? form.newProductCategoryId || categories.data?.[0]?.id
-        : products.data?.find((p) => p.id === form.productId)?.categoryId),
+      (c) => c.id === (form.newProductCategoryId || categories.data?.[0]?.id),
     ) ?? null;
   const suggestedTaxId = selectedCategory?.defaultTaxId ?? taxes.data?.[0]?.id;
 
@@ -125,34 +116,33 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
       setError(
         loading
           ? 'Masters are still loading — try again in a moment.'
-          : `Every SKU needs ${missing}. Add one under Onboarding → Masters first.`,
+          : `Every product needs ${missing}. Add one under Onboarding → Masters first.`,
       );
       return;
     }
 
     try {
-      let productId = form.productId;
-      if (productId === NEW_PRODUCT) {
-        const categoryId = form.newProductCategoryId || categories.data?.[0]?.id;
-        if (!form.newProductName.trim() || !categoryId) {
-          setError('New products need a name and a category.');
-          return;
-        }
-        const product = await createProduct.mutateAsync({
-          name: form.newProductName.trim(),
-          categoryId,
-          brandId: form.newProductBrandId || undefined,
-          subBrandId: form.newProductSubBrandId || undefined,
-          createdBy: user.id,
-        });
-        productId = product.id;
+      const categoryId = form.newProductCategoryId || categories.data?.[0]?.id;
+      if (!form.newProductName.trim() || !categoryId) {
+        setError('A product needs a name and a category.');
+        return;
       }
+      // Always a fresh product. Reusing one is what allowed two items to share
+      // a name and a brand, which is the second level this screen no longer has.
+      const { id: productId } = await createProduct.mutateAsync({
+        name: form.newProductName.trim(),
+        categoryId,
+        brandId: form.newProductBrandId || undefined,
+        subBrandId: form.newProductSubBrandId || undefined,
+        createdBy: user.id,
+      });
 
       const openingQty = Number(form.openingQty) || 0;
       const openingLocationId = form.openingLocationId || store?.id || '';
       await createSku.mutateAsync({
         productId,
-        code: form.code,
+        // Blank asks the API to derive one from the name.
+        code: form.code.trim() || undefined,
         // Blank rather than absent would be stored as '', which the barcode
         // unique index treats as a value — the second unbarcoded SKU would
         // then collide. Absent lets the API store null and the name fall back
@@ -182,8 +172,8 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
   return (
     <Modal
       open={open}
-      title="New SKU"
-      description="Stock is tracked per SKU. Opening stock is written as a ledger movement."
+      title="New product"
+      description="Stock is tracked per product. Opening stock is written as a ledger movement."
       onClose={close}
       footer={
         <>
@@ -191,26 +181,16 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
             Cancel
           </Button>
           <Button form="new-sku-form" type="submit" disabled={pending}>
-            {pending ? 'Creating…' : 'Create SKU'}
+            {pending ? 'Creating…' : 'Create product'}
           </Button>
         </>
       }
     >
       <form id="new-sku-form" onSubmit={(e) => void onSubmit(e)} className="space-y-4">
-        <div>
-          <Label htmlFor="product">Product</Label>
-          <Select id="product" value={form.productId} onChange={(e) => set('productId', e.target.value)}>
-            <option value={NEW_PRODUCT}>+ New product</option>
-            {(products.data ?? []).map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.name} · {categoryById.get(product.categoryId)?.name ?? '—'}
-              </option>
-            ))}
-          </Select>
-        </div>
-
-        {form.productId === NEW_PRODUCT ? (
-          <div className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-3">
+        {/* One product per item. Attaching several items to one product was
+            what made the catalogue two levels deep; every onboarding now
+            creates its own product, so the hierarchy ends here. */}
+        <div className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-3">
             <div>
               <Label htmlFor="p-name">Product name</Label>
               <Input
@@ -277,16 +257,14 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
                 ))}
               </Select>
             </div>
-          </div>
-        ) : null}
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <Label htmlFor="code">SKU code</Label>
+            <Label htmlFor="code">Product code</Label>
             <Input
               id="code"
-              required
-              placeholder="ATT-2KG"
+              placeholder="Generated from the name"
               value={form.code}
               onChange={(e) => set('code', e.target.value)}
             />
@@ -310,16 +288,6 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
               onChange={(e) => set('barcode', e.target.value)}
             />
           </div>
-        </div>
-
-        <div>
-          <Label htmlFor="name">SKU name</Label>
-          <Input
-            id="name"
-            placeholder="Defaults to the product name"
-            value={form.name}
-            onChange={(e) => set('name', e.target.value)}
-          />
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">

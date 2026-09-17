@@ -21,9 +21,11 @@ import type {
   UnitOfMeasurePatch,
   UserPatch,
 } from '@shop/data';
-import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import type { NewRole, RolePatch } from '@shop/core';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { qk } from '../query-keys';
 import { useRepositories } from '../repositories-provider';
+import { STALE } from '../query-client';
 
 interface Patch<T> {
   id: string;
@@ -278,5 +280,66 @@ export function useUpdateSku() {
       void queryClient.invalidateQueries({ queryKey: qk.stock });
       void queryClient.invalidateQueries({ queryKey: qk.audit });
     },
+  });
+}
+
+/* -------------------------------------------------------------------- roles */
+
+/**
+ * Role administration. Every one of these invalidates `roles` *and* the
+ * permission-bearing queries, because changing a role changes what the person
+ * looking at the screen may see — including, when they edit their own role, the
+ * sidebar they are standing in.
+ */
+const invalidateRoles = (queryClient: QueryClient) => {
+  void queryClient.invalidateQueries({ queryKey: ['roles'] });
+  void queryClient.invalidateQueries({ queryKey: ['role-user-counts'] });
+  void queryClient.invalidateQueries({ queryKey: ['users'] });
+  void queryClient.invalidateQueries({ queryKey: qk.audit });
+};
+
+export function useRoleUserCounts() {
+  const repos = useRepositories();
+  return useQuery({
+    queryKey: ['role-user-counts'],
+    queryFn: () => repos.users.roleUserCounts(),
+    staleTime: STALE.ORG,
+  });
+}
+
+export function useCreateRole() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ input, actorId }: { input: NewRole; actorId: string }) =>
+      repos.users.createRole(input, actorId),
+    onSuccess: () => invalidateRoles(queryClient),
+  });
+}
+
+export function useUpdateRole() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch, actorId }: Patch<RolePatch>) =>
+      repos.users.updateRole(id, patch, actorId),
+    onSuccess: () => invalidateRoles(queryClient),
+  });
+}
+
+export function useDeleteRole() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      reassignToRoleId,
+      actorId,
+    }: {
+      id: string;
+      reassignToRoleId: string;
+      actorId: string;
+    }) => repos.users.deleteRole(id, reassignToRoleId, actorId),
+    onSuccess: () => invalidateRoles(queryClient),
   });
 }

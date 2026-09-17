@@ -12,6 +12,7 @@ import {
   useCartStore,
   useBillFields,
   useBillFromEntities,
+  useProducts,
   useCheckout,
   useCreateOrder,
   useCustomerByPhone,
@@ -67,6 +68,9 @@ export function QuickBillingPage() {
 
   const billFields = useBillFields();
   const billFromEntities = useBillFromEntities();
+  // Only to resolve the name a line shows. The cart holds items; the name a
+  // customer reads on the screen and on the bill is the product's.
+  const products = useProducts();
   const [step, setStep] = useState<'cart' | 'checkout'>('cart');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [showMissing, setShowMissing] = useState(false);
@@ -80,6 +84,12 @@ export function QuickBillingPage() {
     [billFromEntities.data, store?.id],
   );
   const [billFromId, setBillFromId] = useState('');
+  const productNameOf = useMemo(() => {
+    const byId = new Map((products.data ?? []).map((p) => [p.id, p.name]));
+    // Falls back to the item's own name for rows onboarded before the two
+    // became one thing.
+    return (sku: { productId: string; name: string }) => byId.get(sku.productId) ?? sku.name;
+  }, [products.data]);
   // Active entities the company has that this store cannot bill under. Named
   // rather than silently dropped: "only one is coming" is otherwise
   // indistinguishable from "only one exists", and the fix is two clicks away in
@@ -233,7 +243,7 @@ export function QuickBillingPage() {
           <Card>
             <CardHeader
               title="Cart"
-              description="Prices come from the SKU. Edit either side of tax and the rest recomputes."
+              description="Prices come from the product. Edit either side of tax and the rest recomputes."
             />
             {/* A phone gets the cart as cards. The table is seven columns wide and
                 would scroll sideways to reach the quantity stepper — the control
@@ -248,7 +258,7 @@ export function QuickBillingPage() {
                   <div key={line.lineId} className="space-y-3 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-medium">{line.sku.name}</p>
+                        <p className="font-medium">{productNameOf(line.sku)}</p>
                         <p className="text-xs text-muted-foreground">
                           {line.sku.code}
                           {available !== undefined ? ` \u00b7 ${fmtQty(available)} available` : ''}
@@ -262,7 +272,7 @@ export function QuickBillingPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label={`Remove ${line.sku.name}`}
+                        aria-label={`Remove ${productNameOf(line.sku)}`}
                         onClick={() => cart.remove(line.lineId)}
                       >
                         <X className="h-4 w-4" />
@@ -281,7 +291,7 @@ export function QuickBillingPage() {
                         </Button>
                         <Input
                           className="tabular w-16 text-center"
-                          aria-label={`Quantity of ${line.sku.name}`}
+                          aria-label={`Quantity of ${productNameOf(line.sku)}`}
                           value={line.qty}
                           onChange={(e) => cart.setQty(line.lineId, Number(e.target.value) || 0)}
                         />
@@ -338,7 +348,7 @@ export function QuickBillingPage() {
                     return (
                       <tr key={line.lineId}>
                         <Td>
-                          <p className="font-medium">{line.sku.name}</p>
+                          <p className="font-medium">{productNameOf(line.sku)}</p>
                           <p className="text-xs text-muted-foreground">
                             {line.sku.code}
                             {available !== undefined ? ` · ${fmtQty(available)} available` : ''}

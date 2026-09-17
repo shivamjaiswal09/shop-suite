@@ -70,7 +70,7 @@ function EntityFields({
   return (
     <div className="grid gap-3 sm:grid-cols-3">
       {field('legalName', 'Legal name', 'S.M Automobiles Pvt Ltd')}
-      {field('gstin', 'GSTIN', '29AAAAA0000A1Z5')}
+      {field('gstin', 'GSTIN', '29AAACC1206D1ZC')}
       {field('pan', 'PAN', 'AAAAA1111A')}
       {field('addressLine', 'Address', '12 MG Road, Bengaluru', true)}
       {field('email', 'Email', 'billing@smauto.in')}

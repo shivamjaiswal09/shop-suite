@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { NavLink } from 'react-router';
 import { NavList } from './nav-list';
 import { Button } from './ui/button';
-import type { NavItem } from './nav';
+import type { NavNode } from '@shop/core';
 
 /**
  * Navigation for screens too narrow for the sidebar.
@@ -20,7 +20,7 @@ export function MobileNav({
 }: {
   open: boolean;
   onClose: () => void;
-  items: NavItem[];
+  items: NavNode[];
 }) {
   const company = useSessionStore((s) => s.company);
   const user = useSessionStore((s) => s.user);

@@ -77,7 +77,7 @@ export function PurchaseReturnDialog({
           <Table>
             <thead>
               <tr>
-                <Th>SKU</Th>
+                <Th>Product</Th>
                 <Th className="text-right">Received</Th>
                 <Th className="w-28 text-right">Return</Th>
               </tr>

@@ -24,7 +24,9 @@ import type {
   PurchaseReturn,
   SalesReturn,
   ReasonCode,
+  NewRole,
   Role,
+  RolePatch,
   SalesByMethod,
   Sku,
   StockMovement,
@@ -177,8 +179,8 @@ export interface NewProduct {
 
 export interface NewSku {
   productId: string;
-  /** The only field a SKU cannot be created without. */
-  code: string;
+  /** Generated from the name when omitted. */
+  code?: string;
   /** Falls back to the parent product's name when omitted. */
   name?: string;
   /** Omitted for anything unbranded or loose. */
@@ -598,6 +600,26 @@ export interface UserRepository {
   authenticate(email: string): Promise<User | undefined>;
   create(input: NewUser): Promise<User>;
   update(id: string, patch: UserPatch, actorId: string): Promise<User>;
+
+  /**
+   * Role administration. Permissions are normalised server-side on every write
+   * — `normalizeRolePermissions` is not the editor's private helper, it is the
+   * rule, and a request that skips the editor gets it applied anyway.
+   *
+   * The guardrails these enforce are documented on each method because getting
+   * one wrong locks a company out of its own account with no screen able to
+   * repair it (see `resolveSignInLanding`).
+   */
+  createRole(input: NewRole, actorId: string): Promise<Role>;
+  /** Refuses a system role. Refuses anything that would orphan the last admin. */
+  updateRole(id: string, patch: RolePatch, actorId: string): Promise<Role>;
+  /**
+   * Refuses a system role, and refuses to strand users: any user still holding
+   * the role moves to `reassignToRoleId` in the same transaction.
+   */
+  deleteRole(id: string, reassignToRoleId: string, actorId: string): Promise<void>;
+  /** How many users hold each role. Drives the editor's reassignment prompt. */
+  roleUserCounts(): Promise<Record<string, number>>;
 }
 
 export interface MasterRepository {

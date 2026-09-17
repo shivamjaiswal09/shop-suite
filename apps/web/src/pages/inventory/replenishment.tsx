@@ -61,7 +61,7 @@ export function ReplenishmentPage() {
           <Table>
             <thead>
               <tr>
-                <Th>SKU</Th>
+                <Th>Product</Th>
                 <Th>Store</Th>
                 <Th className="text-right">On shelf</Th>
                 <Th className="text-right">In transit</Th>

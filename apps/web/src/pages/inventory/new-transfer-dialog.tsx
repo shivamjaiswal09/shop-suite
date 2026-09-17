@@ -73,7 +73,7 @@ export function NewTransferDialog({ open, onClose }: { open: boolean; onClose: (
     setError(null);
 
     if (lines.length === 0) {
-      setError('Add at least one SKU.');
+      setError('Add at least one product.');
       return;
     }
     const overdrawn = lines.find((l) => l.qty > (availableFor.get(l.sku.id) ?? 0));
@@ -181,7 +181,7 @@ export function NewTransferDialog({ open, onClose }: { open: boolean; onClose: (
         </label>
 
         <div>
-          <Label htmlFor="sku-search">Add SKU</Label>
+          <Label htmlFor="sku-search">Add product</Label>
           <Input
             id="sku-search"
             placeholder="Scan barcode or search…"
@@ -214,7 +214,7 @@ export function NewTransferDialog({ open, onClose }: { open: boolean; onClose: (
           <Table>
             <thead>
               <tr>
-                <Th>SKU</Th>
+                <Th>Product</Th>
                 <Th className="w-32 text-right">Available</Th>
                 <Th className="w-28 text-right">Send</Th>
                 <Th className="w-10" />

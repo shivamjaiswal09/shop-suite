@@ -44,7 +44,7 @@ const MODES: {
   {
     value: 'opening',
     label: 'Opening stock',
-    hint: 'Seeds a starting balance for this SKU at this location.',
+    hint: 'Seeds a starting balance for this product at this location.',
     movementType: 'opening',
     refType: 'opening',
     reasonUsage: 'adjustment',
