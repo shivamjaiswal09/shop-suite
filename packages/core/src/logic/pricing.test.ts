@@ -7,7 +7,7 @@ import {
   isInterState,
   priceLine,
   stateCodeOf,
-  taxBreakup, taxableRateOf,
+  taxBreakup, taxableRateOf, splitTax,
 } from './pricing.ts';
 
 const sku = { id: 'sku_1', code: 'SKU-1', name: 'Widget', sellingPrice: 100, taxId: 'tax_18' };
@@ -224,5 +224,27 @@ describe('taxableRateOf', () => {
   it('does not divide by zero', () => {
     // A zero-quantity line should not put NaN on a customer's bill.
     expect(taxableRateOf({ qty: 0, taxableValue: 0 })).toBe(0);
+  });
+});
+
+describe('splitTax', () => {
+  it('halves a tax into CGST and SGST within the state', () => {
+    expect(splitTax(190.68, false)).toEqual({ cgst: 95.34, sgst: 95.34, igst: 0 });
+  });
+
+  it('keeps the halves adding back up on an odd number of paise', () => {
+    // 18.83 does not halve cleanly. Printing 9.42 twice beside a tax of 18.83
+    // is a bill that contradicts itself.
+    const { cgst, sgst } = splitTax(18.83, false);
+    expect(roundMoney(cgst + sgst)).toBe(18.83);
+    expect(cgst).not.toBe(sgst);
+  });
+
+  it('charges the whole tax as IGST across a state border', () => {
+    expect(splitTax(190.68, true)).toEqual({ cgst: 0, sgst: 0, igst: 190.68 });
+  });
+
+  it('splits nothing into nothing', () => {
+    expect(splitTax(0, false)).toEqual({ cgst: 0, sgst: 0, igst: 0 });
   });
 });

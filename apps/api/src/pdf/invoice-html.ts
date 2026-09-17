@@ -1,4 +1,4 @@
-import { amountInWords, roundMoney, stateCodeOf, stateNameOf, taxableRateOf } from '@shop/core';
+import { amountInWords, roundMoney, stateCodeOf, stateNameOf, splitTax, taxableRateOf } from '@shop/core';
 
 /**
  * The GST invoice as an A4 page.
@@ -117,10 +117,14 @@ export function invoiceHtml(
       // figures — so nothing on the bill disagrees with anything else.
       const amount = roundMoney(rate * line.qty);
       const half = line.taxRate / 2;
+      // Split by the shared rule rather than halved here: an odd number of
+      // paise printed as `amount / 2` twice gives two identical halves that do
+      // not add back up to the tax on the same row.
+      const tax = splitTax(line.taxAmount, interState);
       const taxCells = interState
-        ? `<td class="c">${line.taxRate}%</td><td class="r">${money(line.taxAmount)}</td>`
-        : `<td class="c">${half}%</td><td class="r">${money(line.taxAmount / 2)}</td>` +
-          `<td class="c">${half}%</td><td class="r">${money(line.taxAmount - line.taxAmount / 2)}</td>`;
+        ? `<td class="c">${line.taxRate}%</td><td class="r">${money(tax.igst)}</td>`
+        : `<td class="c">${half}%</td><td class="r">${money(tax.cgst)}</td>` +
+          `<td class="c">${half}%</td><td class="r">${money(tax.sgst)}</td>`;
       return `<tr>
         <td class="c">${esc(line.hsnCode ?? '')}</td>
         <td class="c">${index + 1}</td>

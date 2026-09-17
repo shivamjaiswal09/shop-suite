@@ -1,6 +1,7 @@
 import type { Invoice, Sku } from '@shop/core';
 import {
   billFromFor,
+  splitTax,
   taxableRateOf,
   isInterState,
   missingRequiredFields,
@@ -331,8 +332,8 @@ export function QuickBillingPage() {
 
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Taxable {money(priced.taxableValue)}</span>
-                      <span>
-                        Tax {money(priced.taxAmount)} @ {priced.taxRate}%
+                      <span className="text-right">
+                        <TaxCell rate={priced.taxRate} amount={priced.taxAmount} interState={interState} />
                       </span>
                     </div>
                   </div>
@@ -408,8 +409,10 @@ export function QuickBillingPage() {
                         </Td>
                         <Td className="tabular text-right">{money(priced.taxableValue)}</Td>
                         <Td className="tabular text-right text-muted-foreground">
-                          {money(priced.taxAmount)}
-                          <span className="block text-[11px]">@ {priced.taxRate}%</span>
+                          {/* Split into the components the bill charges, so the
+                              cart, the summary and the printed invoice all say
+                              the same thing about the same rupee. */}
+                          <TaxCell rate={priced.taxRate} amount={priced.taxAmount} interState={interState} />
                         </Td>
                         <Td className="tabular text-right font-medium">{money(priced.lineTotal)}</Td>
                         <Td>
@@ -822,6 +825,40 @@ export function QuickBillingPage() {
       {showLast && lastInvoice ? (
         <InvoiceDetail invoice={lastInvoice} onClose={() => setShowLast(false)} />
       ) : null}
+    </>
+  );
+}
+
+/**
+ * A line's tax, as the components that are actually charged.
+ *
+ * One combined figure is not what the bill shows, and it is not what a customer
+ * queries — they ask why there are two nine-percents rather than one eighteen.
+ */
+function TaxCell({
+  rate,
+  amount,
+  interState,
+}: {
+  rate: number;
+  amount: number;
+  interState: boolean;
+}) {
+  const tax = splitTax(amount, interState);
+  const parts = interState
+    ? [['IGST', rate, tax.igst] as const]
+    : ([
+        ['CGST', rate / 2, tax.cgst],
+        ['SGST', rate / 2, tax.sgst],
+      ] as const);
+
+  return (
+    <>
+      {parts.map(([name, half, value]) => (
+        <span key={name} className="block whitespace-nowrap text-[11px]">
+          {name} {half}% {money(value)}
+        </span>
+      ))}
     </>
   );
 }

@@ -87,6 +87,29 @@ export function priceLine(input: PriceLineInput): SaleLine {
   };
 }
 
+/** What a tax amount is made of, once the supply's direction is known. */
+export interface TaxComponents {
+  cgst: number;
+  sgst: number;
+  igst: number;
+}
+
+/**
+ * Splits a tax amount into the components a GST document has to show.
+ *
+ * Halving is not `amount / 2` twice: an odd number of paise then prints two
+ * identical halves that do not add back up to the tax beside them. One half is
+ * rounded and the other is the remainder, so they always re-sum.
+ *
+ * Shared by the cart, the bill summary and the printed invoice — three places
+ * that must never disagree about the same rupee.
+ */
+export function splitTax(taxAmount: number, interState: boolean): TaxComponents {
+  if (interState) return { cgst: 0, sgst: 0, igst: roundMoney(taxAmount) };
+  const half = roundMoney(taxAmount / 2);
+  return { cgst: half, sgst: roundMoney(taxAmount - half), igst: 0 };
+}
+
 /**
  * The rate a GST invoice shows: what one unit costs before tax.
  *
@@ -186,24 +209,10 @@ export function taxBreakup(
   return [...byRate.entries()]
     .sort(([a], [b]) => a - b)
     .map(([rate, bucket]) => {
-      if (options?.interState) {
-        return {
-          rate,
-          taxableValue: bucket.taxableValue,
-          cgst: 0,
-          sgst: 0,
-          igst: bucket.taxAmount,
-          taxAmount: bucket.taxAmount,
-        };
-      }
-      const half = roundMoney(bucket.taxAmount / 2);
       return {
         rate,
         taxableValue: bucket.taxableValue,
-        cgst: half,
-        // Give any rounding remainder to SGST so the halves always re-sum.
-        sgst: roundMoney(bucket.taxAmount - half),
-        igst: 0,
+        ...splitTax(bucket.taxAmount, options?.interState ?? false),
         taxAmount: bucket.taxAmount,
       };
     });
