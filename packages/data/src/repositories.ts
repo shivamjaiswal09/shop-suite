@@ -734,6 +734,10 @@ export interface InvoiceRepository {
    * failed request must surface the API's message, which a bare link in a new
    * tab would show as raw JSON.
    */
+  /**
+   * Omit `copy` for the sheet a counter actually needs — the original above the
+   * duplicate, on one page. Naming one asks for that copy alone.
+   */
   pdf(id: string, copy?: InvoiceCopy): Promise<Blob>;
 }
 

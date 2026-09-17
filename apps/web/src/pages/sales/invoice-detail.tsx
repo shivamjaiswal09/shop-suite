@@ -169,7 +169,9 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
             <Button
               variant="outline"
               disabled={print.isPending}
-              onClick={() => print.mutate({ id: invoice.id, copy: 'original' })}
+              // No copy named: the sheet comes back with both, which is what
+              // a counter hands over and files.
+              onClick={() => print.mutate({ id: invoice.id })}
             >
               {print.isPending ? 'Preparing…' : 'Print bill'}
             </Button>

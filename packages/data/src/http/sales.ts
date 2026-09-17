@@ -562,7 +562,10 @@ export function createSalesRepositories(fetcher: Fetcher): SalesRepositories {
       remove: async (id, confirmNumber) => {
         await fetcher.request<{ deleted: true }>('DELETE', `/invoices/${id}`, { confirmNumber });
       },
-      pdf: (id, copy = 'original') => fetcher.blob(`/invoices/${id}/pdf`, { copy }),
+      // No default here. What a printed sheet carries is the API's decision —
+      // it is the side that knows the layout — and a default on this side
+      // silently overrode it, so the sheet came back with only its top half.
+      pdf: (id, copy) => fetcher.blob(`/invoices/${id}/pdf`, { copy }),
     },
 
     payments: {
