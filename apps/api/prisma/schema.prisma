@@ -311,6 +311,8 @@ model BillFrom {
   gstin       String?
   pan         String?
   addressLine String?
+  email       String?
+  phone       String?
   active      Boolean @default(true)
 
   company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)

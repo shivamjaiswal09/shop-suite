@@ -202,6 +202,8 @@ const publicBillFrom = (row: BillFrom & { locations?: { locationId: string }[] }
   gstin: row.gstin ?? undefined,
   pan: row.pan ?? undefined,
   addressLine: row.addressLine ?? undefined,
+  email: row.email ?? undefined,
+  phone: row.phone ?? undefined,
   /// Which branches may bill under it. Sent with the entity because the two are
   /// always wanted together — a picker needs both to filter by store.
   locationIds: (row.locations ?? []).map((l) => l.locationId),
@@ -592,6 +594,8 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
         gstin: z.string().trim().optional(),
         pan: z.string().trim().optional(),
         addressLine: z.string().trim().optional(),
+        email: z.string().trim().optional(),
+        phone: z.string().trim().optional(),
         locationIds: z.array(z.string()).default([]),
       })
       .parse(request.body);
@@ -611,6 +615,8 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
         gstin: body.gstin || null,
         pan: body.pan || null,
         addressLine: body.addressLine || null,
+        email: body.email || null,
+        phone: body.phone || null,
         locations: { create: body.locationIds.map((locationId) => ({ locationId })) },
       },
       include: { locations: { select: { locationId: true } } },
@@ -635,6 +641,8 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
         gstin: z.string().trim().nullish(),
         pan: z.string().trim().nullish(),
         addressLine: z.string().trim().nullish(),
+        email: z.string().trim().nullish(),
+        phone: z.string().trim().nullish(),
         /// Replaces the whole mapping when given; omitted leaves it alone.
         locationIds: z.array(z.string()).optional(),
         active: z.boolean().optional(),
@@ -672,6 +680,8 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
           gstin: patch.gstin === undefined ? undefined : patch.gstin || null,
           pan: patch.pan === undefined ? undefined : patch.pan || null,
           addressLine: patch.addressLine === undefined ? undefined : patch.addressLine || null,
+          email: patch.email === undefined ? undefined : patch.email || null,
+          phone: patch.phone === undefined ? undefined : patch.phone || null,
           active: patch.active,
         },
         include: { locations: { select: { locationId: true } } },

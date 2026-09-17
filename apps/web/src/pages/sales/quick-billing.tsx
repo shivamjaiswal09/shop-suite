@@ -419,13 +419,27 @@ export function QuickBillingPage() {
                         </Select>
                       </>
                     )}
-                    {/* Shown before billing, because it is what will print. */}
-                    {resolvedBillFrom && (resolvedBillFrom.gstin || resolvedBillFrom.pan) ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {resolvedBillFrom.gstin ? `GSTIN ${resolvedBillFrom.gstin}` : ''}
-                        {resolvedBillFrom.gstin && resolvedBillFrom.pan ? ' · ' : ''}
-                        {resolvedBillFrom.pan ? `PAN ${resolvedBillFrom.pan}` : ''}
-                      </p>
+                    {/* Everything held about the entity, shown before billing
+                        because it is what will print. */}
+                    {resolvedBillFrom ? (
+                      <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+                        {(
+                          [
+                            ['GSTIN', resolvedBillFrom.gstin],
+                            ['PAN', resolvedBillFrom.pan],
+                            ['Address', resolvedBillFrom.addressLine],
+                            ['Phone', resolvedBillFrom.phone],
+                            ['Email', resolvedBillFrom.email],
+                          ] as const
+                        )
+                          .filter(([, value]) => value)
+                          .map(([label, value]) => (
+                            <div key={label} className="flex justify-between gap-3">
+                              <span>{label}</span>
+                              <span className="truncate text-foreground">{value}</span>
+                            </div>
+                          ))}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}

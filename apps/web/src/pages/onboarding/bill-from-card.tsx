@@ -12,6 +12,62 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/input';
 
+interface Draft {
+  legalName: string;
+  gstin: string;
+  pan: string;
+  addressLine: string;
+  email: string;
+  phone: string;
+}
+
+const EMPTY_DRAFT: Draft = {
+  legalName: '',
+  gstin: '',
+  pan: '',
+  addressLine: '',
+  email: '',
+  phone: '',
+};
+
+/**
+ * The fields of an entity, rendered identically whether it is being created or
+ * corrected. Shared rather than written twice: the add form had drifted and was
+ * missing the address the edit form offered.
+ */
+function EntityFields({
+  idPrefix,
+  draft,
+  onChange,
+}: {
+  idPrefix: string;
+  draft: Draft;
+  onChange: (patch: Partial<Draft>) => void;
+}) {
+  const field = (key: keyof Draft, label: string, placeholder?: string, span?: boolean) => (
+    <div className={span ? 'sm:col-span-2' : undefined}>
+      <Label htmlFor={`${idPrefix}-${key}`}>{label}</Label>
+      <Input
+        id={`${idPrefix}-${key}`}
+        placeholder={placeholder}
+        value={draft[key]}
+        onChange={(e) => onChange({ [key]: e.target.value })}
+      />
+    </div>
+  );
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {field('legalName', 'Legal name', 'S.M Automobiles Pvt Ltd')}
+      {field('gstin', 'GSTIN', '29AAAAA0000A1Z5')}
+      {field('pan', 'PAN', 'AAAAA1111A')}
+      {field('addressLine', 'Address', '12 MG Road, Bengaluru', true)}
+      {field('phone', 'Phone', '+91 80 4000 1001')}
+      {field('email', 'Email', 'billing@smauto.in', true)}
+    </div>
+  );
+}
+
 /**
  * The legal entities this company issues bills as, and which branches may use
  * each one.
@@ -26,36 +82,29 @@ export function BillFromCard() {
   const create = useCreateBillFrom();
   const update = useUpdateBillFrom();
 
-  const [legalName, setLegalName] = useState('');
-  const [gstin, setGstin] = useState('');
-  const [pan, setPan] = useState('');
+  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [locationIds, setLocationIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   /** The entity being edited, held as a draft so a half-typed GSTIN is not saved. */
-  const [editing, setEditing] = useState<{
-    id: string;
-    legalName: string;
-    gstin: string;
-    pan: string;
-    addressLine: string;
-  } | null>(null);
+  const [editing, setEditing] = useState<(Draft & { id: string }) | null>(null);
 
   const all = entities.data ?? [];
   const storeList = stores.data ?? [];
 
   const add = async () => {
-    if (!legalName.trim()) return;
+    if (!draft.legalName.trim()) return;
     setError(null);
     try {
       await create.mutateAsync({
-        legalName: legalName.trim(),
-        gstin: gstin.trim() || undefined,
-        pan: pan.trim() || undefined,
+        legalName: draft.legalName.trim(),
+        gstin: draft.gstin.trim() || undefined,
+        pan: draft.pan.trim() || undefined,
+        addressLine: draft.addressLine.trim() || undefined,
+        email: draft.email.trim() || undefined,
+        phone: draft.phone.trim() || undefined,
         locationIds,
       });
-      setLegalName('');
-      setGstin('');
-      setPan('');
+      setDraft(EMPTY_DRAFT);
       setLocationIds([]);
     } catch (cause) {
       setError((cause as Error).message);
@@ -75,6 +124,8 @@ export function BillFromCard() {
           gstin: editing.gstin.trim() || null,
           pan: editing.pan.trim() || null,
           addressLine: editing.addressLine.trim() || null,
+          email: editing.email.trim() || null,
+          phone: editing.phone.trim() || null,
         },
         actorId: user.id,
       });
@@ -103,36 +154,11 @@ export function BillFromCard() {
       />
 
       <CardBody className="space-y-3 border-b border-border">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
-            <Label htmlFor="bf-legal">Legal name</Label>
-            <Input
-              id="bf-legal"
-              required
-              placeholder="S.M Automobiles Pvt Ltd"
-              value={legalName}
-              onChange={(e) => setLegalName(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor="bf-gstin">GSTIN</Label>
-            <Input
-              id="bf-gstin"
-              placeholder="29AAAAA0000A1Z5"
-              value={gstin}
-              onChange={(e) => setGstin(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor="bf-pan">PAN</Label>
-            <Input
-              id="bf-pan"
-              placeholder="AAAAA1111A"
-              value={pan}
-              onChange={(e) => setPan(e.target.value)}
-            />
-          </div>
-        </div>
+        <EntityFields
+          idPrefix="bf"
+          draft={draft}
+          onChange={(patch) => setDraft((prev) => ({ ...prev, ...patch }))}
+        />
 
         <div>
           <Label>Billable from</Label>
@@ -163,7 +189,7 @@ export function BillFromCard() {
           </div>
         </div>
 
-        <Button disabled={create.isPending || !legalName.trim()} onClick={() => void add()}>
+        <Button disabled={create.isPending || !draft.legalName.trim()} onClick={() => void add()}>
           {create.isPending ? 'Adding…' : 'Add entity'}
         </Button>
         {error ? (
@@ -180,39 +206,12 @@ export function BillFromCard() {
           all.map((entity) => (
             <div key={entity.id} className={entity.active ? undefined : 'opacity-50'}>
               {editing?.id === entity.id ? (
-                <div className="grid gap-3 border-b border-border pb-3 sm:grid-cols-3">
-                  <div>
-                    <Label htmlFor={`e-legal-${entity.id}`}>Legal name</Label>
-                    <Input
-                      id={`e-legal-${entity.id}`}
-                      value={editing.legalName}
-                      onChange={(e) => setEditing({ ...editing, legalName: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor={`e-gstin-${entity.id}`}>GSTIN</Label>
-                    <Input
-                      id={`e-gstin-${entity.id}`}
-                      value={editing.gstin}
-                      onChange={(e) => setEditing({ ...editing, gstin: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor={`e-pan-${entity.id}`}>PAN</Label>
-                    <Input
-                      id={`e-pan-${entity.id}`}
-                      value={editing.pan}
-                      onChange={(e) => setEditing({ ...editing, pan: e.target.value })}
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Label htmlFor={`e-addr-${entity.id}`}>Address</Label>
-                    <Input
-                      id={`e-addr-${entity.id}`}
-                      value={editing.addressLine}
-                      onChange={(e) => setEditing({ ...editing, addressLine: e.target.value })}
-                    />
-                  </div>
+                <div className="space-y-3 border-b border-border pb-3">
+                  <EntityFields
+                    idPrefix={`e-${entity.id}`}
+                    draft={editing}
+                    onChange={(patch) => setEditing({ ...editing, ...patch })}
+                  />
                   <div className="flex items-end gap-2">
                     <Button disabled={update.isPending} onClick={() => void saveEdit()}>
                       {update.isPending ? 'Saving…' : 'Save'}
@@ -227,9 +226,15 @@ export function BillFromCard() {
                   <div className="min-w-0">
                     <p className="font-medium">{entity.legalName}</p>
                     <p className="text-xs text-muted-foreground">
-                      {entity.gstin ? `GSTIN ${entity.gstin}` : 'No GSTIN'}
-                      {entity.pan ? ` · PAN ${entity.pan}` : ''}
-                      {entity.addressLine ? ` · ${entity.addressLine}` : ''}
+                      {[
+                        entity.gstin ? `GSTIN ${entity.gstin}` : 'No GSTIN',
+                        entity.pan ? `PAN ${entity.pan}` : null,
+                        entity.addressLine,
+                        entity.phone,
+                        entity.email,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
@@ -243,6 +248,8 @@ export function BillFromCard() {
                           gstin: entity.gstin ?? '',
                           pan: entity.pan ?? '',
                           addressLine: entity.addressLine ?? '',
+                          email: entity.email ?? '',
+                          phone: entity.phone ?? '',
                         })
                       }
                     >

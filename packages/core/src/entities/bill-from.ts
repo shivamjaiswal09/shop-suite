@@ -15,6 +15,8 @@ export const billFromSchema = z.object({
   gstin: z.string().optional(),
   pan: z.string().optional(),
   addressLine: z.string().optional(),
+  email: z.string().optional(),
+  phone: z.string().optional(),
   /** Branches allowed to bill under it. */
   locationIds: z.array(idSchema).default([]),
   active: z.boolean().default(true),
