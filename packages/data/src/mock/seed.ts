@@ -465,6 +465,7 @@ export function createSeededStore(): InMemoryStore {
     const invoice: Invoice = {
       id: invoiceId,
       number: store.nextNumber('INV', storeA.code),
+      interState: false,
       storeId: storeA.id,
       counterId,
       customerName,

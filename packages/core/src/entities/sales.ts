@@ -64,6 +64,11 @@ export const invoiceSchema = z.object({
   customerDetails: z.record(z.string()).optional(),
   /** The entity that issued this bill, as it read when issued. */
   billFrom: billFromSnapshotSchema.optional(),
+  /** Raised across a state border, so taxed as IGST rather than CGST + SGST. */
+  interState: z.boolean().default(false),
+  customerGstin: z.string().optional(),
+  /** Two-digit state code, from the customer's GSTIN. */
+  placeOfSupply: z.string().optional(),
   businessDate: businessDateSchema,
   status: invoiceStatusSchema,
   lines: z.array(saleLineSchema),

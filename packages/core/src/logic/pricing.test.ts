@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { calcTotals, convertPriceBasis, priceLine, taxBreakup } from './pricing.ts';
+import type { SaleLine } from '../entities/sales.ts';
+import { roundMoney } from '../entities/common.ts';
+import {
+  calcTotals,
+  convertPriceBasis,
+  isInterState,
+  priceLine,
+  stateCodeOf,
+  taxBreakup,
+} from './pricing.ts';
 
 const sku = { id: 'sku_1', code: 'SKU-1', name: 'Widget', sellingPrice: 100, taxId: 'tax_18' };
 const exclusive = { id: 'tax_18', rate: 18, inclusive: false };
@@ -132,5 +141,66 @@ describe('taxBreakup', () => {
 
   it('is empty for an empty cart', () => {
     expect(taxBreakup([])).toEqual([]);
+  });
+});
+
+describe('stateCodeOf', () => {
+  it('reads the two-digit prefix a GSTIN begins with', () => {
+    expect(stateCodeOf('08ARCPM6091L1ZC')).toBe('08');
+    expect(stateCodeOf(' 27AABCU9603R1ZX ')).toBe('27');
+  });
+
+  it('gives nothing for anything that does not start with two digits', () => {
+    // A wrong-but-plausible GSTIN is a data-entry problem, not a reason to
+    // refuse the sale — so it simply yields no state rather than throwing.
+    for (const bad of [undefined, null, '', '   ', 'ABCDE', '8']) {
+      expect(stateCodeOf(bad)).toBeUndefined();
+    }
+  });
+});
+
+describe('isInterState', () => {
+  it('is true only when both states are known and differ', () => {
+    expect(isInterState('08ARCPM6091L1ZC', '27AABCU9603R1ZX')).toBe(true);
+    expect(isInterState('08ARCPM6091L1ZC', '08ABEFA1194J1ZE')).toBe(false);
+  });
+
+  it('falls back to intra-state when either side is unknown', () => {
+    // A counter sale to an unregistered walk-in, which is most of them.
+    expect(isInterState('08ARCPM6091L1ZC', undefined)).toBe(false);
+    expect(isInterState(undefined, '27AABCU9603R1ZX')).toBe(false);
+    expect(isInterState(undefined, undefined)).toBe(false);
+  });
+});
+
+describe('taxBreakup across a state border', () => {
+  const line = (taxableValue: number, taxAmount: number, taxRate: number) =>
+    ({ taxableValue, taxAmount, taxRate }) as SaleLine;
+
+  it('splits in half within a state', () => {
+    const [row] = taxBreakup([line(1000, 180, 18)]);
+    expect(row).toMatchObject({ cgst: 90, sgst: 90, igst: 0, taxAmount: 180 });
+  });
+
+  it('puts the whole amount on IGST across one', () => {
+    const [row] = taxBreakup([line(1000, 180, 18)], { interState: true });
+    expect(row).toMatchObject({ cgst: 0, sgst: 0, igst: 180, taxAmount: 180 });
+  });
+
+  it('charges the same tax either way — only its presentation changes', () => {
+    const lines = [line(1000, 180, 18), line(500, 25, 5)];
+    const sum = (rows: ReturnType<typeof taxBreakup>) =>
+      rows.reduce((t, r) => t + r.cgst + r.sgst + r.igst, 0);
+
+    expect(sum(taxBreakup(lines))).toBe(sum(taxBreakup(lines, { interState: true })));
+  });
+
+  it('gives an odd remainder to SGST so the halves still re-sum', () => {
+    // Compared as money: 9.03 + 9.02 is 18.049999999999997 in binary floating
+    // point, which is a fact about doubles rather than about the split.
+    const [row] = taxBreakup([line(100, 18.05, 18)]);
+    // Which half absorbs the odd paisa is not specified — only that together
+    // they come to the tax actually charged.
+    expect(roundMoney(row!.cgst + row!.sgst)).toBe(row!.taxAmount);
   });
 });

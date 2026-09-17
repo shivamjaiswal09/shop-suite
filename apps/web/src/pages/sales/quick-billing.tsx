@@ -1,5 +1,11 @@
 import type { Invoice, Sku } from '@shop/core';
-import { billFromFor, missingRequiredFields, splitBillFields } from '@shop/core';
+import {
+  billFromFor,
+  isInterState,
+  missingRequiredFields,
+  splitBillFields,
+  stateCodeOf,
+} from '@shop/core';
 import {
   useCartPricing,
   useCartIsForeign,
@@ -35,7 +41,6 @@ export function QuickBillingPage() {
   const counterId = useSessionStore((s) => s.counterId);
 
   const cart = useCartStore();
-  const { lines, totals, taxRows } = useCartPricing();
   const taxes = useTaxMap();
   const paymentMethods = usePaymentMethods();
   const checkout = useCheckout();
@@ -77,6 +82,15 @@ export function QuickBillingPage() {
     billFromOptions.length === 1
       ? billFromOptions[0]
       : billFromOptions.find((e) => e.id === billFromId);
+
+  // Derived here for display from the same rule the API applies on write, so
+  // the tax a cashier reads out and the tax recorded cannot disagree.
+  const customerGstin = fieldValues.gstin?.trim();
+  const interState = isInterState(resolvedBillFrom?.gstin, customerGstin);
+
+  // Priced after the rule is known, because the rule decides how the tax is
+  // presented — the amount is the same either way.
+  const { lines, totals, taxRows } = useCartPricing({ interState });
   const missing = missingRequiredFields(activeFields, fieldValues);
   const missingKeys = new Set(showMissing ? missing.map((f) => f.key) : []);
 
@@ -611,8 +625,14 @@ export function QuickBillingPage() {
                       <tr className="border-b border-border text-muted-foreground">
                         <th className="px-2 py-1.5 text-left font-medium">Tax</th>
                         <th className="px-2 py-1.5 text-right font-medium">Taxable</th>
-                        <th className="px-2 py-1.5 text-right font-medium">CGST</th>
-                        <th className="px-2 py-1.5 text-right font-medium">SGST</th>
+                        {interState ? (
+                          <th className="px-2 py-1.5 text-right font-medium">IGST</th>
+                        ) : (
+                          <>
+                            <th className="px-2 py-1.5 text-right font-medium">CGST</th>
+                            <th className="px-2 py-1.5 text-right font-medium">SGST</th>
+                          </>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -620,12 +640,25 @@ export function QuickBillingPage() {
                         <tr key={row.rate} className="border-b border-border last:border-0">
                           <td className="px-2 py-1.5">{row.rate}%</td>
                           <td className="tabular px-2 py-1.5 text-right">{money(row.taxableValue)}</td>
-                          <td className="tabular px-2 py-1.5 text-right">{money(row.cgst)}</td>
-                          <td className="tabular px-2 py-1.5 text-right">{money(row.sgst)}</td>
+                          {interState ? (
+                            <td className="tabular px-2 py-1.5 text-right">{money(row.igst)}</td>
+                          ) : (
+                            <>
+                              <td className="tabular px-2 py-1.5 text-right">{money(row.cgst)}</td>
+                              <td className="tabular px-2 py-1.5 text-right">{money(row.sgst)}</td>
+                            </>
+                          )}
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                  {/* Named because it is the surprising case: the same tax
+                      presented differently, and a cashier should see why. */}
+                  {interState ? (
+                    <p className="border-t border-border px-2 py-1.5 text-[11px] text-muted-foreground">
+                      Inter-state supply — place of supply {stateCodeOf(customerGstin)}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
 

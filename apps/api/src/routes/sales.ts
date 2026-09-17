@@ -10,7 +10,9 @@ import {
   returnableLines,
   roundMoney,
   roundQty,
+  isInterState,
   signedQty,
+  stateCodeOf,
   summarizeSalesByMethod,
   type Invoice as DomainInvoice,
   type SaleLine,
@@ -149,6 +151,9 @@ const invoiceWire = (row: TotalsRow & { lines: LineRow[] } & Record<string, unkn
   customerId: row.customerId,
   customerName: row.customerName,
   customerDetails: (row.customerDetails as Record<string, string> | null) ?? undefined,
+  interState: row.interState,
+  customerGstin: row.customerGstin ?? undefined,
+  placeOfSupply: row.placeOfSupply ?? undefined,
   billFrom: row.billFromName
     ? {
         id: row.billFromId ?? undefined,
@@ -398,6 +403,10 @@ async function writeInvoice(
     customerName?: string | null;
     /** Sale-scope bill-field answers, keyed by BillFieldConfig.key. */
     customerDetails?: Record<string, string>;
+    /** Decided from the two GSTINs, never asked. */
+    interState?: boolean;
+    customerGstin?: string;
+    placeOfSupply?: string;
     /** Snapshot of the entity the bill is issued by, resolved by the caller. */
     billFrom?: {
       id: string;
@@ -431,6 +440,9 @@ async function writeInvoice(
       billFromAddress: args.billFrom?.addressLine,
       billFromEmail: args.billFrom?.email,
       billFromPhones: args.billFrom?.phones ?? [],
+      interState: args.interState ?? false,
+      customerGstin: args.customerGstin,
+      placeOfSupply: args.placeOfSupply,
       businessDate: businessDateOf(at),
       status: 'unpaid',
       ...args.totals,
@@ -887,12 +899,21 @@ export async function registerSalesRoutes(app: FastifyInstance) {
           };
         }
 
+        // Derived from the two GSTINs rather than asked: a cashier should not
+        // be choosing between CGST and IGST, and leaving it to a person is how
+        // the wrong tax gets charged.
+        const customerGstin = fields.gstin?.trim() || undefined;
+        const interState = isInterState(billFrom?.gstin, customerGstin);
+
         const written = await writeInvoice(tx, {
           companyId,
           actorId: caller.userId,
           store,
           counterId: body.counterId,
           billFrom,
+          interState,
+          customerGstin,
+          placeOfSupply: stateCodeOf(customerGstin),
           customerId,
           customerName: fields.name ?? body.customerName ?? customer?.name,
           customerDetails: body.customerDetails,

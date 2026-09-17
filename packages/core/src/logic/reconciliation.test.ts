@@ -11,6 +11,7 @@ const invoice = (id: string, qty: number, total: number): Invoice => ({
   counterId: 'counter-1',
   businessDate: '2026-08-30',
   status: 'unpaid',
+  interState: false,
   lines: [
     {
       id: 'l1',

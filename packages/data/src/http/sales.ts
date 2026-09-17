@@ -93,6 +93,13 @@ interface WireInvoice {
   counterId: string;
   customerId: string | null;
   customerName: string | null;
+  /** Sale-scope bill-field answers, keyed by BillFieldConfig.key. */
+  customerDetails?: Record<string, string> | null;
+  /** The entity that issued the bill, as it read when issued. */
+  billFrom?: Invoice['billFrom'] | null;
+  interState?: boolean | null;
+  customerGstin?: string | null;
+  placeOfSupply?: string | null;
   businessDate: string;
   status: InvoiceStatus;
   lines: WireLine[];
@@ -279,10 +286,18 @@ const toInvoice = (row: WireInvoice): Invoice => ({
   id: row.id,
   number: row.number,
   orderId: opt(row.orderId),
+  interState: row.interState ?? false,
+  customerGstin: opt(row.customerGstin),
+  placeOfSupply: opt(row.placeOfSupply),
   storeId: row.storeId,
   counterId: row.counterId,
   customerId: opt(row.customerId),
   customerName: opt(row.customerName),
+  // Read back as well as sent. These were posted and never mapped in, so
+  // against the API a bill carried no supplier block and no captured details —
+  // invisible in development, because the mock returns its own objects.
+  customerDetails: row.customerDetails ?? undefined,
+  billFrom: row.billFrom ?? undefined,
   businessDate: row.businessDate,
   status: row.status,
   lines: row.lines.map(toLine),

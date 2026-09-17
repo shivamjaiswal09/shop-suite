@@ -892,6 +892,12 @@ model Invoice {
   billFromAddress String?
   billFromEmail   String?
   billFromPhones  String[] @default([])
+  /// Snapshot: whether this bill was raised as an inter-state supply, and the
+  /// GSTIN that decided it. A customer correcting theirs later must not change
+  /// the tax a document was issued under.
+  interState      Boolean  @default(false)
+  customerGstin   String?
+  placeOfSupply   String?
   businessDate String
   status       InvoiceStatus
 

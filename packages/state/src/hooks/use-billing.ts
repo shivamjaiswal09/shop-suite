@@ -16,7 +16,13 @@ import { useRepositories } from '../repositories-provider';
 import { useTaxMap } from './use-masters';
 
 /** Live pricing of the in-progress cart. Pure derivation — nothing is stored. */
-export function useCartPricing(): {
+/**
+ * `interState` is passed in rather than read here, because it depends on the
+ * bill-from entity and the customer GSTIN the billing screen holds. The rule
+ * itself lives in `@shop/core` and the API applies the same one, so what a
+ * cashier sees and what is written cannot disagree.
+ */
+export function useCartPricing(options?: { interState?: boolean }): {
   lines: SaleLine[];
   totals: SaleTotals;
   taxRows: TaxBreakupRow[];
@@ -43,9 +49,9 @@ export function useCartPricing(): {
     return {
       lines: priced,
       totals: priced.length ? calcTotals(priced) : emptyTotals(),
-      taxRows: taxBreakup(priced),
+      taxRows: taxBreakup(priced, { interState: options?.interState }),
     };
-  }, [cartLines, taxes]);
+  }, [cartLines, taxes, options?.interState]);
 }
 
 export interface Tender {

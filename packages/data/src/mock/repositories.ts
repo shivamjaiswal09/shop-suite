@@ -5,6 +5,8 @@ import {
   calcClosing,
   calcTotals,
   deriveInventoryLevel,
+  isInterState,
+  stateCodeOf,
   byCategoryOrder,
   calcRefund,
   categorySchema,
@@ -1290,6 +1292,9 @@ export class MockRepositories implements Repositories {
       this.assertAvailable(lines, input.storeId);
       const customerId = this.resolveCustomer(input.customerId, input.customerFields);
       const billFrom = this.resolveBillFrom(input.billFromId, input.storeId);
+      // The same derivation the API performs. Computing it in one place and not
+      // the other is how a screen passes against mocks and fails for real.
+      const customerGstin = input.customerFields?.gstin?.trim() || undefined;
       const invoice = this.writeInvoice({
         storeId: input.storeId,
         counterId: input.counterId,
@@ -1297,6 +1302,9 @@ export class MockRepositories implements Repositories {
         customerName: input.customerFields?.name ?? input.customerName,
         customerDetails: input.customerDetails,
         billFrom,
+        interState: isInterState(billFrom?.gstin, customerGstin),
+        customerGstin,
+        placeOfSupply: stateCodeOf(customerGstin),
         lines,
         totals: calcTotals(lines),
         createdBy: input.createdBy,
@@ -2124,6 +2132,9 @@ export class MockRepositories implements Repositories {
     customerName?: string;
     customerDetails?: Record<string, string>;
     billFrom?: Invoice['billFrom'];
+    interState?: boolean;
+    customerGstin?: string;
+    placeOfSupply?: string;
     lines: SaleLine[];
     totals: Invoice['totals'];
     createdBy: string;
@@ -2136,6 +2147,9 @@ export class MockRepositories implements Repositories {
       orderId: args.orderId,
       customerDetails: args.customerDetails,
       billFrom: args.billFrom,
+      interState: args.interState ?? false,
+      customerGstin: args.customerGstin,
+      placeOfSupply: args.placeOfSupply,
       storeId: args.storeId,
       counterId: args.counterId,
       customerId: args.customerId,

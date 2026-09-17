@@ -111,21 +111,56 @@ export const emptyTotals = (): SaleTotals => ({
 export interface TaxBreakupRow {
   rate: number;
   taxableValue: number;
-  /** Central GST — half the total for an intra-state supply. */
+  /** Central GST — half the total for an intra-state supply, else zero. */
   cgst: number;
-  /** State GST — the other half. */
+  /** State GST — the other half, else zero. */
   sgst: number;
+  /** Integrated GST — the whole amount on an inter-state supply, else zero. */
+  igst: number;
   taxAmount: number;
 }
 
 /**
- * Tax grouped by rate, split into CGST/SGST halves the way an Indian retail
- * invoice prints it.
+ * The two-digit state code a GSTIN begins with — 08 is Rajasthan, 27 is
+ * Maharashtra.
  *
- * Assumes an intra-state supply, which is the only case a single-state shop
- * sees. An inter-state sale would show one IGST line at the full rate instead.
+ * Only the prefix is checked. Validating the whole fifteen-character format is
+ * deliberately not attempted: a wrong-but-plausible GSTIN is a data-entry
+ * problem, and refusing to bill over it would stop a sale at the counter for
+ * something only the customer can fix.
  */
-export function taxBreakup(lines: readonly SaleLine[]): TaxBreakupRow[] {
+export const stateCodeOf = (gstin: string | undefined | null): string | undefined => {
+  const trimmed = (gstin ?? '').trim();
+  return /^\d{2}/.test(trimmed) ? trimmed.slice(0, 2) : undefined;
+};
+
+/**
+ * Whether a supply crosses a state border, which is what decides IGST against
+ * CGST plus SGST.
+ *
+ * Both codes must be known. A missing GSTIN on either side means intra-state —
+ * the correct default for a counter sale to an unregistered walk-in, and the
+ * behaviour every bill had before this existed.
+ */
+export const isInterState = (
+  supplierGstin?: string | null,
+  customerGstin?: string | null,
+): boolean => {
+  const supplier = stateCodeOf(supplierGstin);
+  const customer = stateCodeOf(customerGstin);
+  return Boolean(supplier && customer && supplier !== customer);
+};
+
+/**
+ * Tax grouped by rate, split the way an Indian invoice prints it: CGST and SGST
+ * at half each within a state, one IGST line at the full rate across one.
+ *
+ * The total is identical either way — only its presentation changes.
+ */
+export function taxBreakup(
+  lines: readonly SaleLine[],
+  options?: { interState?: boolean },
+): TaxBreakupRow[] {
   const byRate = new Map<number, { taxableValue: number; taxAmount: number }>();
 
   for (const line of lines) {
@@ -138,6 +173,16 @@ export function taxBreakup(lines: readonly SaleLine[]): TaxBreakupRow[] {
   return [...byRate.entries()]
     .sort(([a], [b]) => a - b)
     .map(([rate, bucket]) => {
+      if (options?.interState) {
+        return {
+          rate,
+          taxableValue: bucket.taxableValue,
+          cgst: 0,
+          sgst: 0,
+          igst: bucket.taxAmount,
+          taxAmount: bucket.taxAmount,
+        };
+      }
       const half = roundMoney(bucket.taxAmount / 2);
       return {
         rate,
@@ -145,6 +190,7 @@ export function taxBreakup(lines: readonly SaleLine[]): TaxBreakupRow[] {
         cgst: half,
         // Give any rounding remainder to SGST so the halves always re-sum.
         sgst: roundMoney(bucket.taxAmount - half),
+        igst: 0,
         taxAmount: bucket.taxAmount,
       };
     });

@@ -797,6 +797,45 @@ describe('bill-from entities', () => {
   });
 });
 
+describe('inter-state supply', () => {
+  const billedTo = async (customerGstin: string | undefined, supplierGstin: string) => {
+    const base = await setup();
+    const entity = await base.repos.masters.createBillFrom({
+      legalName: `Entity ${supplierGstin.slice(0, 2)}`,
+      gstin: supplierGstin,
+      locationIds: [base.store.id],
+    });
+    const invoice = await base.repos.invoices.create({
+      storeId: base.store.id,
+      counterId: base.counterId,
+      lines: [{ skuId: base.sku.id, qty: 1 }],
+      billFromId: entity.id,
+      customerFields: customerGstin ? { gstin: customerGstin } : undefined,
+      createdBy: base.actor,
+    });
+    return invoice;
+  };
+
+  it('records the supply as inter-state when the states differ', async () => {
+    const invoice = await billedTo('27AABCU9603R1ZX', '29AABCN1234R1ZQ');
+    expect(invoice.interState).toBe(true);
+    expect(invoice.customerGstin).toBe('27AABCU9603R1ZX');
+    expect(invoice.placeOfSupply).toBe('27');
+  });
+
+  it('records it as intra-state within one', async () => {
+    const invoice = await billedTo('29ZZZZZ1234Z1ZX', '29AABCN1234R1ZQ');
+    expect(invoice.interState).toBe(false);
+    expect(invoice.placeOfSupply).toBe('29');
+  });
+
+  it('treats an unregistered walk-in as intra-state', async () => {
+    const invoice = await billedTo(undefined, '29AABCN1234R1ZQ');
+    expect(invoice.interState).toBe(false);
+    expect(invoice.customerGstin).toBeUndefined();
+  });
+});
+
 describe('deactivating a SKU', () => {
   it('leaves the invoices that already sold it untouched', async () => {
     // The whole reason deletion is a flag: an invoice line snapshots the code

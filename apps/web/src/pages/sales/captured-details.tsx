@@ -13,12 +13,17 @@ export function CapturedDetails({
   fields,
   className,
 }: {
-  invoice: Pick<Invoice, 'customerName' | 'customerDetails' | 'billFrom'>;
+  invoice: Pick<
+    Invoice,
+    'customerName' | 'customerDetails' | 'billFrom' | 'customerGstin' | 'interState' | 'placeOfSupply'
+  >;
   fields: BillFieldConfig[];
   className?: string;
 }) {
   const entries = Object.entries(invoice.customerDetails ?? {});
-  if (!invoice.billFrom && !invoice.customerName && entries.length === 0) return null;
+  if (!invoice.billFrom && !invoice.customerName && !invoice.customerGstin && entries.length === 0) {
+    return null;
+  }
 
   /**
    * The configured label wins verbatim — capitalising it would quietly rewrite
@@ -63,6 +68,22 @@ export function CapturedDetails({
         <div className="flex justify-between gap-3 text-sm">
           <span className="text-muted-foreground">Customer</span>
           <span className="truncate font-medium">{invoice.customerName}</span>
+        </div>
+      ) : null}
+      {/* Customer-scope, so it lives on the customer rather than in
+          customerDetails — but it decides the tax, so the bill states it. */}
+      {invoice.customerGstin ? (
+        <div className="flex justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">Customer GSTIN</span>
+          <span className="truncate font-medium">{invoice.customerGstin}</span>
+        </div>
+      ) : null}
+      {invoice.interState ? (
+        <div className="flex justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">Place of supply</span>
+          <span className="truncate font-medium">
+            {invoice.placeOfSupply} · inter-state (IGST)
+          </span>
         </div>
       ) : null}
       {entries.map(([key, value]) => {
