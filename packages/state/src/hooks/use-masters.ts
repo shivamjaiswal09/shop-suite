@@ -187,3 +187,15 @@ export function useUpdateBrand() {
     },
   });
 }
+
+export function useDeleteBrand() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => repos.masters.deleteBrand(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['masters', 'brands'] });
+      void queryClient.invalidateQueries({ queryKey: ['products'] });
+    },
+  });
+}

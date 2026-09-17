@@ -639,6 +639,41 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
     return publicBrand(updated);
   });
 
+  app.delete('/brands/:id', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const existing = found(await prisma.brand.findUnique({ where: { id } }), 'Brand', id);
+    const { caller, companyId } = await gate(request, existing.companyId, MANAGE);
+
+    // Refused rather than cascaded. Blanking the brand on every product because
+    // someone deleted a row is exactly the quiet damage a guard exists to stop,
+    // and deactivating already retires a brand without touching its history.
+    const children = await prisma.brand.count({ where: { parentId: id } });
+    if (children > 0) {
+      throw new HttpError(409, `${existing.name} has ${children} sub-brand(s). Delete those first.`);
+    }
+    // Both references count: a brand may be a product's brand or its sub-brand.
+    const used = await prisma.product.count({
+      where: { companyId, OR: [{ brandId: id }, { subBrandId: id }] },
+    });
+    if (used > 0) {
+      throw new HttpError(
+        409,
+        `${existing.name} is used by ${used} product(s). Change their brand first, or deactivate it instead.`,
+      );
+    }
+
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'brand',
+      entityId: id,
+      action: 'delete',
+      summary: `Brand ${existing.name} deleted`,
+    });
+    await prisma.brand.delete({ where: { id } });
+    return { deleted: true, name: existing.name };
+  });
+
   /* ------------------------------------------------------------ bill fields */
 
   app.get('/bill-fields', async (request) => {

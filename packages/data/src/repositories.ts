@@ -575,6 +575,12 @@ export interface MasterRepository {
   brands(includeInactive?: boolean): Promise<Brand[]>;
   createBrand(input: NewBrand): Promise<Brand>;
   updateBrand(id: string, patch: BrandPatch, actorId: string): Promise<Brand>;
+  /**
+   * Removes a brand nothing points at. Refuses while any product uses it, or
+   * while it still has sub-brands — deactivate is the way to retire one that is
+   * in use.
+   */
+  deleteBrand(id: string): Promise<void>;
   /** Phone is unique per company, so this is how a counter finds a walk-in. */
   customerByPhone(phone: string): Promise<Customer | undefined>;
   createCategory(input: NewCategory): Promise<Category>;

@@ -1,5 +1,11 @@
 import { subBrandsOf, topLevelBrands, type Brand } from '@shop/core';
-import { useBrands, useCreateBrand, useSessionStore, useUpdateBrand } from '@shop/state';
+import {
+  useBrands,
+  useCreateBrand,
+  useDeleteBrand,
+  useSessionStore,
+  useUpdateBrand,
+} from '@shop/state';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -17,6 +23,7 @@ export function BrandsCard() {
   const brands = useBrands(true);
   const create = useCreateBrand();
   const update = useUpdateBrand();
+  const remove = useDeleteBrand();
 
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState('');
@@ -38,8 +45,37 @@ export function BrandsCard() {
 
   const toggle = (brand: Brand) => {
     if (!user) return;
+    setError(null);
     update.mutate({ id: brand.id, patch: { active: !brand.active }, actorId: user.id });
   };
+
+  const del = async (brand: Brand) => {
+    setError(null);
+    try {
+      await remove.mutateAsync(brand.id);
+    } catch (cause) {
+      // Shown rather than swallowed: the refusal names what is still using the
+      // brand, which is the only way to know what to do about it.
+      setError((cause as Error).message);
+    }
+  };
+
+  const actions = (brand: Brand) => (
+    <div className="flex shrink-0 gap-1">
+      <Button size="sm" variant="ghost" onClick={() => toggle(brand)}>
+        {brand.active ? 'Deactivate' : 'Reactivate'}
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-destructive"
+        disabled={remove.isPending}
+        onClick={() => void del(brand)}
+      >
+        Delete
+      </Button>
+    </div>
+  );
 
   return (
     <Card>
@@ -76,7 +112,9 @@ export function BrandsCard() {
             </Button>
           </div>
         </div>
-        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        {error ? (
+          <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+        ) : null}
       </CardBody>
 
       <CardBody className="space-y-4">
@@ -91,9 +129,7 @@ export function BrandsCard() {
               <div key={brand.id} className={brand.active ? undefined : 'opacity-50'}>
                 <div className="flex items-center justify-between gap-3 border-b border-border pb-1.5">
                   <span className="font-medium">{brand.name}</span>
-                  <Button size="sm" variant="ghost" onClick={() => toggle(brand)}>
-                    {brand.active ? 'Deactivate' : 'Reactivate'}
-                  </Button>
+                  {actions(brand)}
                 </div>
                 {children.length === 0 ? (
                   <p className="mt-1.5 pl-4 text-xs text-muted-foreground">No sub-brands.</p>
@@ -105,9 +141,7 @@ export function BrandsCard() {
                         className={`flex items-center justify-between gap-3 text-sm ${sub.active ? '' : 'opacity-50'}`}
                       >
                         <span>{sub.name}</span>
-                        <Button size="sm" variant="ghost" onClick={() => toggle(sub)}>
-                          {sub.active ? 'Deactivate' : 'Reactivate'}
-                        </Button>
+                        {actions(sub)}
                       </div>
                     ))}
                   </div>

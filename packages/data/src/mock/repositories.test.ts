@@ -666,6 +666,60 @@ describe('brands and sub-brands', () => {
   });
 });
 
+describe('deleting a brand', () => {
+  it('refuses while products still use it', async () => {
+    // Blanking the brand on every product because someone deleted a row is the
+    // kind of quiet damage a refusal exists to prevent.
+    const { repos, actor } = await setup();
+    const ceat = await repos.masters.createBrand({ name: 'Ceat' });
+    const category = (await repos.masters.categories())[0]!;
+    await repos.products.createProduct({
+      name: 'Tyre',
+      categoryId: category.id,
+      brandId: ceat.id,
+      createdBy: actor,
+    });
+
+    await expect(repos.masters.deleteBrand(ceat.id)).rejects.toThrow(/1 product/i);
+    expect((await repos.masters.brands()).some((b) => b.id === ceat.id)).toBe(true);
+  });
+
+  it('refuses while it still has sub-brands', async () => {
+    const { repos } = await setup();
+    const ceat = await repos.masters.createBrand({ name: 'Ceat' });
+    await repos.masters.createBrand({ name: 'Milaze X5', parentId: ceat.id });
+
+    await expect(repos.masters.deleteBrand(ceat.id)).rejects.toThrow(/sub-brand/i);
+  });
+
+  it('refuses while a product uses it as its sub-brand', async () => {
+    // The sub-brand is a second reference, and missing it would let a delete
+    // through that the database then rejects with a constraint error.
+    const { repos, actor } = await setup();
+    const ceat = await repos.masters.createBrand({ name: 'Ceat' });
+    const milaze = await repos.masters.createBrand({ name: 'Milaze X5', parentId: ceat.id });
+    const category = (await repos.masters.categories())[0]!;
+    await repos.products.createProduct({
+      name: 'Tyre',
+      categoryId: category.id,
+      brandId: ceat.id,
+      subBrandId: milaze.id,
+      createdBy: actor,
+    });
+
+    await expect(repos.masters.deleteBrand(milaze.id)).rejects.toThrow(/1 product/i);
+  });
+
+  it('deletes one nothing points at', async () => {
+    const { repos } = await setup();
+    const spare = await repos.masters.createBrand({ name: 'Unused' });
+
+    await repos.masters.deleteBrand(spare.id);
+
+    expect((await repos.masters.brands(true)).some((b) => b.id === spare.id)).toBe(false);
+  });
+});
+
 describe('HSN on a SKU', () => {
   it('keeps what was entered, and is optional', async () => {
     const { repos, actor } = await setup();

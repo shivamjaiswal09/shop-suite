@@ -133,6 +133,10 @@ export function createCatalogueRepositories(fetcher: Fetcher): {
 
     updateBrand: (id, patch) => fetcher.patch<Brand>(`/brands/${id}`, patch),
 
+    deleteBrand: async (id) => {
+      await fetcher.del<{ deleted: true }>(`/brands/${id}`);
+    },
+
     billFields: (includeInactive) =>
       fetcher.get<BillFieldConfig[]>('/bill-fields', { includeInactive }),
 

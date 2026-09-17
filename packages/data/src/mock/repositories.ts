@@ -621,6 +621,30 @@ export class MockRepositories implements Repositories {
       return tick(field);
     },
 
+    deleteBrand: async (id) => {
+      const brand = this.store.brands.find((b) => b.id === id);
+      if (!brand) throw new NotFoundError('Brand', id);
+
+      const children = this.store.brands.filter((b) => b.parentId === id);
+      if (children.length > 0) {
+        throw new Error(
+          `${brand.name} has ${children.length} sub-brand(s). Delete those first.`,
+        );
+      }
+      // Both references count: a brand can be a product's brand or its
+      // sub-brand, and missing the second lets a delete through that the
+      // database then refuses with a constraint error.
+      const used = this.store.products.filter((p) => p.brandId === id || p.subBrandId === id);
+      if (used.length > 0) {
+        throw new Error(
+          `${brand.name} is used by ${used.length} product(s). Change their brand first, or deactivate it instead.`,
+        );
+      }
+
+      this.store.brands = this.store.brands.filter((b) => b.id !== id);
+      return tick(undefined);
+    },
+
     createReasonCode: async (input) => {
       const reason = reasonCodeSchema.parse({
         id: this.store.nextId('rsn'),
