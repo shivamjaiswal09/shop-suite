@@ -1315,6 +1315,126 @@ export async function registerSalesRoutes(app: FastifyInstance) {
     }
   });
 
+  /**
+   * Corrects a captured payment: the cashier took the money, but recorded it
+   * against the wrong method, the wrong amount, or with a typo in the reference.
+   *
+   * Nothing is edited in place. A reversal row goes in against the original
+   * method and a fresh capture row against the corrected one, so the invoice
+   * shows what actually happened and the day's takings by method still net out
+   * under a plain SUM. Rewriting the original row would restate a day that may
+   * already have been counted and signed off, with nothing left to show why.
+   */
+  app.post('/invoices/:id/payments/:paymentId/correct', async (request, reply) => {
+    const params = z.object({ id: z.string(), paymentId: z.string() }).parse(request.params);
+    const body = z
+      .object({
+        companyId: z.string().optional(),
+        paymentMethodId: z.string().min(1),
+        amount: z.number(),
+        reference: z.string().optional(),
+      })
+      .parse(request.body);
+
+    const { caller, companyId } = requireCompany(await principal(request), body.companyId);
+    // The same bar as cancelling or deleting a bill: this moves money between
+    // methods after the fact.
+    requirePermission(caller, 'admin.manage');
+
+    return prisma.$transaction(async (tx) => {
+      const original = await tx.payment.findFirst({
+        where: { id: params.paymentId, invoiceId: params.id, companyId },
+      });
+      if (!original) throw new HttpError(404, `Payment not found: ${params.paymentId}`);
+      if (n(original.amount) <= 0) {
+        throw new HttpError(400, 'That row is itself a reversal — correct the capture instead');
+      }
+      if (original.status === 'refunded') {
+        throw new HttpError(409, 'That payment has already been corrected');
+      }
+      if (body.amount <= 0) throw new HttpError(400, 'Payment amount must be positive');
+
+      const invoice = await tx.invoice.findFirst({ where: { id: params.id, companyId } });
+      if (!invoice) throw new HttpError(404, `Invoice not found: ${params.id}`);
+      if (invoice.status === 'cancelled') {
+        throw new HttpError(409, 'That bill is cancelled — its payments are already reversed');
+      }
+
+      const method = await tx.paymentMethod.findFirst({
+        where: { id: body.paymentMethodId, companyId },
+      });
+      if (!method) throw new HttpError(404, `PaymentMethod not found: ${body.paymentMethodId}`);
+
+      // Derived from the row being corrected, so a double-submitted correction
+      // collides on the unique index rather than reversing the money twice.
+      const reversalKey = `${original.id}:reversal`;
+      const replacementKey = `${original.id}:correction`;
+
+      const reversal = await tx.payment.create({
+        data: {
+          companyId,
+          invoiceId: invoice.id,
+          storeId: original.storeId,
+          counterId: original.counterId,
+          // The reversal belongs to the day the money was taken, not today's,
+          // or a correction made tomorrow would unbalance both days.
+          businessDate: original.businessDate,
+          paymentMethodId: original.paymentMethodId,
+          amount: roundMoney(-n(original.amount)),
+          reference: original.reference,
+          status: 'refunded',
+          idempotencyKey: reversalKey,
+          createdBy: caller.userId,
+        },
+      });
+
+      const replacement = await tx.payment.create({
+        data: {
+          companyId,
+          invoiceId: invoice.id,
+          storeId: original.storeId,
+          counterId: original.counterId,
+          businessDate: original.businessDate,
+          paymentMethodId: method.id,
+          amount: roundMoney(body.amount),
+          reference: body.reference ?? null,
+          status: 'success',
+          idempotencyKey: replacementKey,
+          createdBy: caller.userId,
+        },
+      });
+
+      // Marked so the row cannot be corrected a second time; the money it
+      // represents is accounted for by the reversal beside it.
+      await tx.payment.update({ where: { id: original.id }, data: { status: 'refunded' } });
+
+      const amountPaid = roundMoney(
+        n(invoice.amountPaid) - n(original.amount) + roundMoney(body.amount),
+      );
+      const amountDue = roundMoney(Math.max(n(invoice.grandTotal) - amountPaid, 0));
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          amountPaid,
+          amountDue,
+          status: amountDue <= 0 ? 'paid' : amountPaid > 0 ? 'partially_paid' : 'unpaid',
+        },
+      });
+
+      await auditIn(tx, {
+        companyId,
+        actorId: caller.userId,
+        entity: 'payment',
+        entityId: original.id,
+        action: 'update',
+        summary: `Corrected ₹${n(original.amount)} on ${invoice.number} to ₹${roundMoney(body.amount)} (${method.name})`,
+      });
+
+      reply.code(201);
+      return { reversal, replacement };
+    }, TX);
+  });
+
   app.get('/invoices/:id/payments', async (request) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const query = z.object({ companyId: z.string().optional() }).parse(request.query);

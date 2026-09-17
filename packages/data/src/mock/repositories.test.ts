@@ -1,4 +1,4 @@
-import { billFromFor } from '@shop/core';
+import { billFromFor, roundMoney } from '@shop/core';
 import { describe, expect, it } from 'vitest';
 import { DuplicateBarcodeError, InsufficientStockError, MockRepositories } from './repositories';
 
@@ -1532,5 +1532,155 @@ describe('day-end closing', () => {
     expect(resolved.status).toBe('written_off');
     expect(resolved.resolvedBy).toBe(actor);
     expect(resolved.resolvedAt).toBeDefined();
+  });
+});
+
+describe('correcting a captured payment', () => {
+  /** A bill, fully settled against the first payment method. */
+  const billedAndPaid = async () => {
+    const { repos, store, sku, actor, counterId } = await setup();
+    const methods = await repos.masters.paymentMethods();
+    const wrong = methods[0]!;
+    const right = methods.find((m) => m.id !== wrong.id)!;
+
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      createdBy: actor,
+    });
+    const payment = await repos.payments.capture({
+      invoiceId: invoice.id,
+      paymentMethodId: wrong.id,
+      amount: invoice.totals.grandTotal,
+      idempotencyKey: `${invoice.id}:0`,
+      createdBy: actor,
+    });
+    return { repos, store, actor, invoice, payment, wrong, right };
+  };
+
+  it('nets the original method to zero and moves the money to the new one', async () => {
+    // The cashier tapped UPI; the customer paid cash. Both facts stay on the
+    // record — the day's takings by method are what change.
+    const { repos, invoice, payment, wrong, right, actor } = await billedAndPaid();
+
+    await repos.payments.correct({
+      invoiceId: invoice.id,
+      paymentId: payment.id,
+      paymentMethodId: right.id,
+      amount: payment.amount,
+      createdBy: actor,
+    });
+
+    const rows = await repos.payments.listByInvoice(invoice.id);
+    const sumFor = (methodId: string) =>
+      roundMoney(rows.filter((r) => r.paymentMethodId === methodId).reduce((s, r) => s + r.amount, 0));
+
+    expect(sumFor(wrong.id)).toBe(0);
+    expect(sumFor(right.id)).toBe(payment.amount);
+    expect(roundMoney(rows.reduce((s, r) => s + r.amount, 0))).toBe(payment.amount);
+  });
+
+  it('leaves the bill settled, not doubly paid', async () => {
+    const { repos, invoice, payment, right, actor } = await billedAndPaid();
+
+    await repos.payments.correct({
+      invoiceId: invoice.id,
+      paymentId: payment.id,
+      paymentMethodId: right.id,
+      amount: payment.amount,
+      createdBy: actor,
+    });
+
+    const after = (await repos.invoices.byId(invoice.id))!;
+    expect(after.amountPaid).toBe(invoice.totals.grandTotal);
+    expect(after.amountDue).toBe(0);
+    expect(after.status).toBe('paid');
+  });
+
+  it('reopens the balance when the corrected amount is smaller', async () => {
+    const { repos, invoice, payment, right, actor } = await billedAndPaid();
+
+    await repos.payments.correct({
+      invoiceId: invoice.id,
+      paymentId: payment.id,
+      paymentMethodId: right.id,
+      amount: roundMoney(payment.amount - 100),
+      createdBy: actor,
+    });
+
+    const after = (await repos.invoices.byId(invoice.id))!;
+    expect(after.amountDue).toBe(100);
+    expect(after.status).toBe('partially_paid');
+  });
+
+  it('books both rows to the day the money was taken', async () => {
+    // A correction made the next morning must not move takings between days.
+    const { repos, store, invoice, payment, right, actor } = await billedAndPaid();
+
+    const { reversal, replacement } = await repos.payments.correct({
+      invoiceId: invoice.id,
+      paymentId: payment.id,
+      paymentMethodId: right.id,
+      amount: payment.amount,
+      createdBy: actor,
+    });
+
+    expect(reversal.businessDate).toBe(payment.businessDate);
+    expect(replacement.businessDate).toBe(payment.businessDate);
+
+    const day = await repos.payments.listByDay(store.id, payment.businessDate);
+    expect(roundMoney(day.filter((p) => p.invoiceId === invoice.id).reduce((s, p) => s + p.amount, 0)))
+      .toBe(payment.amount);
+  });
+
+  it('refuses to correct the same payment twice', async () => {
+    // Otherwise a double-submitted form reverses the money a second time.
+    const { repos, invoice, payment, right, actor } = await billedAndPaid();
+    const args = {
+      invoiceId: invoice.id,
+      paymentId: payment.id,
+      paymentMethodId: right.id,
+      amount: payment.amount,
+      createdBy: actor,
+    };
+
+    await repos.payments.correct(args);
+    await expect(repos.payments.correct(args)).rejects.toThrow(/already been corrected/);
+  });
+
+  it('refuses to correct a reversal row', async () => {
+    const { repos, invoice, payment, right, actor } = await billedAndPaid();
+    const { reversal } = await repos.payments.correct({
+      invoiceId: invoice.id,
+      paymentId: payment.id,
+      paymentMethodId: right.id,
+      amount: payment.amount,
+      createdBy: actor,
+    });
+
+    await expect(
+      repos.payments.correct({
+        invoiceId: invoice.id,
+        paymentId: reversal.id,
+        paymentMethodId: right.id,
+        amount: 10,
+        createdBy: actor,
+      }),
+    ).rejects.toThrow(/itself a reversal/);
+  });
+
+  it('writes an audit entry naming what changed', async () => {
+    const { repos, invoice, payment, right, actor } = await billedAndPaid();
+    await repos.payments.correct({
+      invoiceId: invoice.id,
+      paymentId: payment.id,
+      paymentMethodId: right.id,
+      amount: payment.amount,
+      createdBy: actor,
+    });
+
+    const audit = await repos.audit.list();
+    expect(audit.some((e) => e.entity === 'payment' && e.action === 'update')).toBe(true);
   });
 });

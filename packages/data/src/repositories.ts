@@ -118,6 +118,20 @@ export interface CapturePayment {
   createdBy: string;
 }
 
+/**
+ * A correction to money already taken: the amount was right but landed against
+ * the wrong method, or the reference was mistyped.
+ */
+export interface CorrectPayment {
+  invoiceId: string;
+  paymentId: string;
+  paymentMethodId: string;
+  amount: number;
+  reference?: string;
+  /** As with a capture: the API takes the actor from the session and ignores this. */
+  createdBy: string;
+}
+
 export interface NewBillFrom {
   legalName: string;
   gstin?: string;
@@ -702,6 +716,13 @@ export interface PaymentRepository {
   capture(input: CapturePayment): Promise<Payment>;
   listByInvoice(invoiceId: string): Promise<Payment[]>;
   listByDay(storeId: string, businessDate: string, counterId?: string): Promise<Payment[]>;
+  /**
+   * Reverses a captured payment and writes the corrected one beside it.
+   * Requires `admin.manage`. Nothing is edited in place: the reversal is a
+   * negative row on the original method and the original business date, so the
+   * day's takings still net out and the audit trail shows what changed.
+   */
+  correct(input: CorrectPayment): Promise<{ reversal: Payment; replacement: Payment }>;
 }
 
 export interface ClosingRepository {

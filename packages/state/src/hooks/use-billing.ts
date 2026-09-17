@@ -7,7 +7,13 @@ import {
   type SaleTotals,
   type TaxBreakupRow,
 } from '@shop/core';
-import type { CapturePayment, InvoiceCopy, InvoiceFilter, SaleLineInput } from '@shop/data';
+import type {
+  CapturePayment,
+  CorrectPayment,
+  InvoiceCopy,
+  InvoiceFilter,
+  SaleLineInput,
+} from '@shop/data';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useCartStore } from '../cart';
@@ -197,6 +203,28 @@ export function useInvoice(id: string | undefined) {
     queryKey: qk.invoice(id ?? 'none'),
     queryFn: () => repos.invoices.byId(id!),
     enabled: Boolean(id),
+  });
+}
+
+/**
+ * Corrects money already taken. Requires `admin.manage`, which the API enforces
+ * independently — hiding the button is courtesy, not security.
+ *
+ * Invalidates the day's closing as well as the invoice: the correction moves
+ * takings between methods, so a day-end preview left in cache would disagree
+ * with the drawer.
+ */
+export function useCorrectPayment() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CorrectPayment) => repos.payments.correct(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      void queryClient.invalidateQueries({ queryKey: ['payments'] });
+      void queryClient.invalidateQueries({ queryKey: qk.closing });
+      void queryClient.invalidateQueries({ queryKey: qk.audit });
+    },
   });
 }
 

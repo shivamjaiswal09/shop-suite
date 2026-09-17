@@ -47,6 +47,7 @@ import type {
   AuditRepository,
   AuthRepository,
   CapturePayment,
+  CorrectPayment,
   ClosingPreview,
   ClosingRepository,
   ClosingRequest,
@@ -1465,6 +1466,70 @@ export class MockRepositories implements Repositories {
         locationId: invoice.storeId,
       });
       return tick(payment);
+    },
+
+    correct: async (input: CorrectPayment) => {
+      const original = this.store.payments.find(
+        (p) => p.id === input.paymentId && p.invoiceId === input.invoiceId,
+      );
+      if (!original) throw new NotFoundError('Payment', input.paymentId);
+      if (original.amount <= 0) {
+        throw new Error('That row is itself a reversal — correct the capture instead');
+      }
+      if (original.status === 'refunded') throw new Error('That payment has already been corrected');
+      if (input.amount <= 0) throw new Error('Payment amount must be positive');
+
+      const invoice = this.store.invoices.find((i) => i.id === input.invoiceId);
+      if (!invoice) throw new NotFoundError('Invoice', input.invoiceId);
+      if (invoice.status === 'cancelled') {
+        throw new Error('That bill is cancelled — its payments are already reversed');
+      }
+
+      // Both rows keep the original's business date. A correction made the next
+      // morning belongs to the day the money was taken, or it unbalances two
+      // days instead of one.
+      const reversal: Payment = {
+        id: this.store.nextId('pay'),
+        invoiceId: invoice.id,
+        storeId: original.storeId,
+        counterId: original.counterId,
+        businessDate: original.businessDate,
+        paymentMethodId: original.paymentMethodId,
+        amount: roundMoney(-original.amount),
+        reference: original.reference,
+        status: 'refunded',
+        idempotencyKey: `${original.id}:reversal`,
+        createdBy: input.createdBy,
+        createdAt: this.store.now(),
+      };
+      const replacement: Payment = {
+        ...reversal,
+        id: this.store.nextId('pay'),
+        paymentMethodId: input.paymentMethodId,
+        amount: roundMoney(input.amount),
+        reference: input.reference,
+        status: 'success',
+        idempotencyKey: `${original.id}:correction`,
+      };
+      this.store.payments.push(reversal, replacement);
+      original.status = 'refunded';
+
+      invoice.amountPaid = roundMoney(
+        invoice.amountPaid - original.amount + roundMoney(input.amount),
+      );
+      invoice.amountDue = roundMoney(Math.max(invoice.totals.grandTotal - invoice.amountPaid, 0));
+      invoice.status =
+        invoice.amountDue <= 0 ? 'paid' : invoice.amountPaid > 0 ? 'partially_paid' : 'unpaid';
+
+      this.store.bumpAudit({
+        entity: 'payment',
+        entityId: original.id,
+        action: 'update',
+        summary: `Corrected ₹${original.amount} on ${invoice.number} to ₹${roundMoney(input.amount)}`,
+        actorId: input.createdBy,
+        locationId: invoice.storeId,
+      });
+      return tick({ reversal, replacement });
     },
 
     listByInvoice: (invoiceId: string) => tick(this.store.payments.filter((p) => p.invoiceId === invoiceId)),

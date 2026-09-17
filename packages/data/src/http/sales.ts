@@ -579,6 +579,18 @@ export function createSalesRepositories(fetcher: Fetcher): SalesRepositories {
           }),
         ),
 
+      correct: async (input) => {
+        const wire = await fetcher.post<{ reversal: WirePayment; replacement: WirePayment }>(
+          `/invoices/${input.invoiceId}/payments/${input.paymentId}/correct`,
+          {
+            paymentMethodId: input.paymentMethodId,
+            amount: input.amount,
+            reference: input.reference,
+          },
+        );
+        return { reversal: toPayment(wire.reversal), replacement: toPayment(wire.replacement) };
+      },
+
       listByInvoice: async (invoiceId) =>
         (await fetcher.get<WirePayment[]>(`/invoices/${invoiceId}/payments`)).map(toPayment),
 

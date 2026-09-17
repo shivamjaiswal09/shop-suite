@@ -4,6 +4,7 @@ import {
   useCancelInvoice,
   useBillFields,
   useCapturePayment,
+  useCorrectPayment,
   useDeleteInvoice,
   useInvoicePayments,
   usePaymentMethods,
@@ -43,6 +44,12 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
   const cancelInvoice = useCancelInvoice();
   const deleteInvoice = useDeleteInvoice();
   const print = usePrintInvoice();
+
+  // Correcting money already taken. Admin-only, and the API says so too.
+  const correct = useCorrectPayment();
+  const [correcting, setCorrecting] = useState<string | null>(null);
+  const [fix, setFix] = useState({ methodId: '', amount: '', reference: '' });
+  const [fixError, setFixError] = useState<string | null>(null);
   const [adminMode, setAdminMode] = useState<'none' | 'cancel' | 'delete'>('none');
   const [note, setNote] = useState('');
   const [confirmNumber, setConfirmNumber] = useState('');
@@ -82,6 +89,33 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
   };
 
   const adminBusy = cancelInvoice.isPending || deleteInvoice.isPending;
+
+  const onCorrect = async (event: FormEvent, paymentId: string) => {
+    event.preventDefault();
+    if (!invoice || !user) return;
+    setFixError(null);
+
+    const value = Number(fix.amount);
+    if (!Number.isFinite(value) || value <= 0) {
+      setFixError('Enter an amount greater than zero.');
+      return;
+    }
+    if (!fix.methodId) return;
+
+    try {
+      await correct.mutateAsync({
+        invoiceId: invoice.id,
+        paymentId,
+        paymentMethodId: fix.methodId,
+        amount: value,
+        reference: fix.reference || undefined,
+        createdBy: user.id,
+      });
+      setCorrecting(null);
+    } catch (cause) {
+      setFixError((cause as Error).message);
+    }
+  };
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -211,14 +245,102 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
             ) : (
               <div className="space-y-1.5">
                 {payments.data!.map((payment) => (
-                  <div key={payment.id} className="flex items-center justify-between gap-2 text-sm">
-                    <span className="flex items-center gap-2">
-                      {methodName(payment.paymentMethodId)}
-                      <Badge tone={payment.status === 'success' ? 'success' : 'warning'}>
-                        {payment.status}
-                      </Badge>
-                    </span>
-                    <span className="tabular">{money(payment.amount)}</span>
+                  <div key={payment.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span className="flex items-center gap-2">
+                        {methodName(payment.paymentMethodId)}
+                        <Badge tone={payment.status === 'success' ? 'success' : 'warning'}>
+                          {paymentLabel(payment)}
+                        </Badge>
+                        {/* Only a live capture can be corrected. A negative row is
+                            the reversal of one, and a refunded row already has its
+                            reversal sitting beside it. */}
+                        {isAdmin &&
+                        payment.amount > 0 &&
+                        payment.status === 'success' &&
+                        invoice.status !== 'cancelled' ? (
+                          <button
+                            type="button"
+                            className="text-xs text-primary underline-offset-2 hover:underline"
+                            onClick={() => {
+                              setCorrecting(payment.id);
+                              setFix({
+                                methodId: payment.paymentMethodId,
+                                amount: String(payment.amount),
+                                reference: payment.reference ?? '',
+                              });
+                              setFixError(null);
+                            }}
+                          >
+                            Correct
+                          </button>
+                        ) : null}
+                      </span>
+                      <span className={`tabular ${payment.amount < 0 ? 'text-muted-foreground' : ''}`}>
+                        {money(payment.amount)}
+                      </span>
+                    </div>
+
+                    {correcting === payment.id ? (
+                      <form
+                        onSubmit={(e) => void onCorrect(e, payment.id)}
+                        className="space-y-2 rounded-md border border-border p-3"
+                      >
+                        <p className="text-xs text-muted-foreground">
+                          The money stays taken. This reverses it off{' '}
+                          {methodName(payment.paymentMethodId)} and books it again as entered below,
+                          on the same business day.
+                        </p>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          <div>
+                            <Label htmlFor={`fix-method-${payment.id}`}>Method</Label>
+                            <Select
+                              id={`fix-method-${payment.id}`}
+                              value={fix.methodId}
+                              onChange={(e) => setFix((f) => ({ ...f, methodId: e.target.value }))}
+                            >
+                              {(methods.data ?? []).map((method) => (
+                                <option key={method.id} value={method.id}>
+                                  {method.name}
+                                </option>
+                              ))}
+                            </Select>
+                          </div>
+                          <div>
+                            <Label htmlFor={`fix-amount-${payment.id}`}>Amount</Label>
+                            <Input
+                              id={`fix-amount-${payment.id}`}
+                              className="tabular"
+                              value={fix.amount}
+                              onChange={(e) => setFix((f) => ({ ...f, amount: e.target.value }))}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`fix-ref-${payment.id}`}>Reference</Label>
+                            <Input
+                              id={`fix-ref-${payment.id}`}
+                              value={fix.reference}
+                              placeholder="UPI txn id"
+                              onChange={(e) => setFix((f) => ({ ...f, reference: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+                        {fixError ? <p className="text-xs text-destructive">{fixError}</p> : null}
+                        <div className="flex gap-2">
+                          <Button type="submit" size="sm" disabled={correct.isPending}>
+                            {correct.isPending ? 'Correcting…' : 'Save correction'}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setCorrecting(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </form>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -355,6 +477,19 @@ export function InvoiceDetail({ invoice, onClose }: { invoice: Invoice | null; o
       </div>
     </Modal>
   );
+}
+
+/**
+ * What a payment row is, in a word.
+ *
+ * A correction leaves three rows behind, two of them `refunded`: the capture it
+ * superseded and the negative row that backed it out. Printing the raw status on
+ * both reads as "the customer was refunded twice", which is not what happened.
+ */
+function paymentLabel(payment: { amount: number; status: string }): string {
+  if (payment.amount < 0) return 'reversal';
+  if (payment.status === 'refunded') return 'corrected';
+  return payment.status;
 }
 
 function Row({ label, value }: { label: string; value: string }) {

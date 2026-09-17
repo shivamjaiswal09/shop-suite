@@ -25,6 +25,7 @@ import { Minus, Plus, Receipt, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CapturedDetails } from './captured-details';
 import { CustomerStep } from './customer-step';
+import { InvoiceDetail } from './invoice-detail';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,9 @@ export function QuickBillingPage() {
 
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
+  // Opened on completion and reopenable from the card below, which is what
+  // stays on screen once it is dismissed.
+  const [showLast, setShowLast] = useState(false);
 
   const availableFor = useMemo(
     () => new Map(stock.rows.map((row) => [row.sku.id, row.level.available])),
@@ -168,6 +172,7 @@ export function QuickBillingPage() {
       createdBy: user.id,
     });
     setLastInvoice(result.invoice);
+    setShowLast(true);
     cart.clear();
     setTenders([]);
     setFieldValues({});
@@ -719,11 +724,27 @@ export function QuickBillingPage() {
                   <span>Total</span>
                   <span className="tabular">{money(lastInvoice.totals.grandTotal)}</span>
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setShowLast(true)}
+                >
+                  <Receipt className="h-3.5 w-3.5" /> View & print
+                </Button>
               </CardBody>
             </Card>
           ) : null}
         </div>
       </div>
+
+      {/* The bill that was just raised, in the same modal the Invoices list
+          opens — so printing, settling and correcting it are one screen rather
+          than three near-copies. Dismissing it leaves the card above, which
+          reopens it. */}
+      {showLast && lastInvoice ? (
+        <InvoiceDetail invoice={lastInvoice} onClose={() => setShowLast(false)} />
+      ) : null}
     </>
   );
 }
