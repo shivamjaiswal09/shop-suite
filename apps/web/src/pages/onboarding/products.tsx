@@ -93,6 +93,7 @@ export function ProductsPage() {
               <Th>Product</Th>
               <Th>Category</Th>
               <Th>Barcode</Th>
+              <Th>HSN</Th>
               <Th>UoM</Th>
               <Th>Tax</Th>
               <Th className="text-right">Purchase</Th>
@@ -104,7 +105,7 @@ export function ProductsPage() {
           </thead>
           <tbody>
             {visible.length === 0 ? (
-              <EmptyRow colSpan={10}>No products match.</EmptyRow>
+              <EmptyRow colSpan={11}>No products match.</EmptyRow>
             ) : (
               visible.map((sku) => {
                 const product = productById.get(sku.productId);
@@ -123,9 +124,14 @@ export function ProductsPage() {
                     <Td>
                       <Badge>{categories.get(product?.categoryId ?? '')?.name ?? '—'}</Badge>
                     </Td>
+                    {/* Two different codes, so two columns. Stacked under one
+                        heading, the HSN read as a barcode on every product that
+                        has no barcode — which is most of them. */}
                     <Td className="tabular text-xs text-muted-foreground">
-                      <p>{sku.barcode}</p>
-                      {sku.hsnCode ? <p>HSN {sku.hsnCode}</p> : null}
+                      {sku.barcode || '—'}
+                    </Td>
+                    <Td className="tabular text-xs text-muted-foreground">
+                      {sku.hsnCode || '—'}
                     </Td>
                     <Td>{uomById.get(sku.uomId)?.code ?? '—'}</Td>
                     <Td>{taxes.get(sku.taxId)?.name ?? '—'}</Td>
