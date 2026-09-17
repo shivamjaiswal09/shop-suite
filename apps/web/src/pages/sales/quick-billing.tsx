@@ -80,6 +80,8 @@ export function QuickBillingPage() {
     [billFromEntities.data, store?.id],
   );
   const [billFromId, setBillFromId] = useState('');
+  // Entities exist for the company, but none of them name this store.
+  const billFromUnmapped = (billFromEntities.data ?? []).length > 0 && billFromOptions.length === 0;
   // One option is not a decision. Picked here rather than defaulted in state so
   // it follows the store switcher without a stale id surviving the change.
   const resolvedBillFrom =
@@ -408,36 +410,45 @@ export function QuickBillingPage() {
             </Button>
           ) : null}
 
-          {step === 'checkout' && (activeFields.length > 0 || billFromOptions.length > 0) ? (
+          {step === 'checkout' &&
+          (activeFields.length > 0 || billFromOptions.length > 0 || billFromUnmapped) ? (
             <Card>
               <CardHeader title="Customer" description="Recorded against this bill." />
               <CardBody className="space-y-4">
                 {/* The bill's two parties, in the order the document prints
                     them: who it is from, then who it is to. */}
+                {billFromUnmapped ? (
+                  // Silently omitting the block reads as "this shop has no
+                  // billing entity", when in fact one exists and simply is not
+                  // mapped here. Naming it is the difference between a
+                  // two-minute fix in Masters and an hour of confusion.
+                  <div className="rounded-md border border-warning/40 bg-warning/5 p-3 text-xs">
+                    No billing entity is mapped to {store?.name ?? 'this store'}. Add it under
+                    Onboarding → Masters → Bill From, using “Billable from”. This bill will print
+                    without a supplier block.
+                  </div>
+                ) : null}
+
                 {billFromOptions.length > 0 ? (
                   <div className="rounded-md border border-border p-3">
-                    {billFromOptions.length === 1 ? (
-                      <>
-                        <p className="text-xs text-muted-foreground">Billing as</p>
-                        <p className="mt-0.5 font-medium">{resolvedBillFrom?.legalName}</p>
-                      </>
-                    ) : (
-                      <>
-                        <Label htmlFor="bill-from">Billing as</Label>
-                        <Select
-                          id="bill-from"
-                          value={billFromId}
-                          onChange={(e) => setBillFromId(e.target.value)}
-                        >
-                          <option value="">— choose an entity —</option>
-                          {billFromOptions.map((e) => (
-                            <option key={e.id} value={e.id}>
-                              {e.legalName}
-                            </option>
-                          ))}
-                        </Select>
-                      </>
-                    )}
+                    {/* Always a dropdown, even at one option. Rendering the sole
+                        entity as static text hid the fact that this is a choice
+                        at all, and left a cashier no way to see what else the
+                        shop could bill under. The one option is preselected, so
+                        the common case still costs no taps. */}
+                    <Label htmlFor="bill-from">Billing as</Label>
+                    <Select
+                      id="bill-from"
+                      value={resolvedBillFrom?.id ?? ''}
+                      onChange={(e) => setBillFromId(e.target.value)}
+                    >
+                      {billFromOptions.length > 1 ? <option value="">— choose an entity —</option> : null}
+                      {billFromOptions.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.legalName}
+                        </option>
+                      ))}
+                    </Select>
                     {/* Everything held about the entity, shown before billing
                         because it is what will print. */}
                     {resolvedBillFrom ? (
