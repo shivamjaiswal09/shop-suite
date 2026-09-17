@@ -1,4 +1,4 @@
-import type { Invoice, Sku } from '@shop/core';
+import type { Invoice, InvoicePage, Sku } from '@shop/core';
 import {
   billFromFor,
   splitTax,
@@ -18,16 +18,15 @@ import {
   useCheckout,
   useCreateOrder,
   useCustomerByPhone,
-  usePaymentMethods,
   useSessionStore,
   useStockOverview,
   useTaxMap,
-  type Tender,
 } from '@shop/state';
 import { Minus, Plus, Receipt, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CapturedDetails } from './captured-details';
 import { CustomerStep } from './customer-step';
+import { InvoicePreview } from './invoice-preview';
 import { InvoiceDetail } from './invoice-detail';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -46,13 +45,11 @@ export function QuickBillingPage() {
 
   const cart = useCartStore();
   const taxes = useTaxMap();
-  const paymentMethods = usePaymentMethods();
   const checkout = useCheckout();
   const createOrder = useCreateOrder();
   const stock = useStockOverview(store?.id);
   const cartIsForeign = useCartIsForeign(store?.id);
 
-  const [tenders, setTenders] = useState<Tender[]>([]);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
   // Opened on completion and reopenable from the card below, which is what
   // stays on screen once it is dismissed.
@@ -76,6 +73,8 @@ export function QuickBillingPage() {
   const [step, setStep] = useState<'cart' | 'checkout'>('cart');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [showMissing, setShowMissing] = useState(false);
+  // Nothing is written while this is open; confirming it is what raises.
+  const [previewing, setPreviewing] = useState(false);
 
   const activeFields = useMemo(() => billFields.data ?? [], [billFields.data]);
 
@@ -172,12 +171,6 @@ export function QuickBillingPage() {
     [cart.lines, lines, availableFor],
   );
 
-  const dueAmount = Math.max(
-    Math.round((totals.grandTotal - tenders.reduce((sum, t) => sum + t.amount, 0)) * 100) / 100,
-    0,
-  );
-  const defaultMethodId = paymentMethods.data?.[0]?.id ?? '';
-
   const saleLines = () =>
     cart.lines.map((l) => ({
       skuId: l.sku.id,
@@ -186,6 +179,48 @@ export function QuickBillingPage() {
       unitPriceOverride: l.unitPriceOverride,
       overrideBasis: l.overrideBasis,
     }));
+
+  /**
+   * The cart as the bill would print it.
+   *
+   * The number and date are the invoice's to assign, so before it exists the
+   * preview says so rather than inventing one that will not match.
+   */
+  const previewPage = useMemo(
+    (): InvoicePage => ({
+      number: '— assigned on raising —',
+      createdAt: new Date().toISOString(),
+      customerName: fieldValues.name ?? fieldValues.customer_name ?? cart.customerName ?? undefined,
+      customerGstin: customerGstin || undefined,
+      interState,
+      lines: lines.map((line) => ({
+        name: line.name,
+        hsnCode: line.hsnCode,
+        qty: line.qty,
+        unitPrice: line.unitPrice,
+        taxRate: line.taxRate,
+        taxableValue: line.taxableValue,
+        taxAmount: line.taxAmount,
+        lineTotal: line.lineTotal,
+      })),
+      totals: {
+        taxableValue: totals.taxableValue,
+        taxTotal: totals.taxTotal,
+        roundOff: totals.roundOff,
+        grandTotal: totals.grandTotal,
+      },
+      billFrom: resolvedBillFrom
+        ? {
+            legalName: resolvedBillFrom.legalName,
+            gstin: resolvedBillFrom.gstin,
+            pan: resolvedBillFrom.pan,
+            addressLine: resolvedBillFrom.addressLine,
+            phones: resolvedBillFrom.phones,
+          }
+        : undefined,
+    }),
+    [lines, totals, resolvedBillFrom, interState, customerGstin, fieldValues, cart.customerName],
+  );
 
   const onBill = async () => {
     if (!store || !user || lines.length === 0) return;
@@ -204,13 +239,15 @@ export function QuickBillingPage() {
       customerDetails: split.sale,
       billFromId: resolvedBillFrom?.id,
       lines: saleLines(),
-      tenders: tenders.filter((t) => t.amount > 0),
+      // Always unpaid at this point: money is taken on the invoice that comes
+      // back, where a correction is possible and the document already exists.
+      tenders: [],
       createdBy: user.id,
     });
     setLastInvoice(result.invoice);
+    setPreviewing(false);
     setShowLast(true);
     cart.clear();
-    setTenders([]);
     setFieldValues({});
     setBillFromId('');
     setShowMissing(false);
@@ -226,7 +263,6 @@ export function QuickBillingPage() {
       createdBy: user.id,
     });
     cart.clear();
-    setTenders([]);
   };
 
   return (
@@ -536,71 +572,11 @@ export function QuickBillingPage() {
 
           {step === 'checkout' ? (
           <Card>
-            <CardHeader title="Payment" description="Split across tenders if needed." />
+            <CardHeader
+              title="Raise the bill"
+              description="Payment is taken on the invoice, once it exists."
+            />
             <CardBody className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {(paymentMethods.data ?? []).map((method) => (
-                  <Button
-                    key={method.id}
-                    variant="outline"
-                    size="sm"
-                    disabled={totals.grandTotal <= 0}
-                    onClick={() => setTenders([{ paymentMethodId: method.id, amount: totals.grandTotal }])}
-                  >
-                    {method.name} · full
-                  </Button>
-                ))}
-              </div>
-
-              {tenders.map((tender, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Select
-                    className="flex-1"
-                    value={tender.paymentMethodId}
-                    onChange={(e) =>
-                      setTenders((prev) =>
-                        prev.map((t, i) => (i === index ? { ...t, paymentMethodId: e.target.value } : t)),
-                      )
-                    }
-                  >
-                    {(paymentMethods.data ?? []).map((method) => (
-                      <option key={method.id} value={method.id}>
-                        {method.name}
-                      </option>
-                    ))}
-                  </Select>
-                  <Input
-                    className="tabular w-28 text-right"
-                    value={tender.amount}
-                    onChange={(e) =>
-                      setTenders((prev) =>
-                        prev.map((t, i) => (i === index ? { ...t, amount: Number(e.target.value) || 0 } : t)),
-                      )
-                    }
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setTenders((prev) => prev.filter((_, i) => i !== index))}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))}
-
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <button
-                  type="button"
-                  className="underline hover:text-foreground"
-                  onClick={() =>
-                    defaultMethodId &&
-                    setTenders((prev) => [...prev, { paymentMethodId: defaultMethodId, amount: dueAmount }])
-                  }
-                >
-                  + Add tender
-                </button>
-                <span className="tabular">Due: {money(dueAmount)}</span>
-              </div>
 
               {cartIsForeign ? (
                 <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -634,16 +610,12 @@ export function QuickBillingPage() {
                   setShowMissing(true);
                   const undecided = billFromOptions.length > 1 && !resolvedBillFrom;
                   if (!undecided && missingRequiredFields(activeFields, fieldValues).length === 0) {
-                    void onBill();
+                    setPreviewing(true);
                   }
                 }}
               >
                 <Receipt className="h-4 w-4" />
-                {checkout.isPending
-                  ? 'Billing…'
-                  : tenders.length === 0
-                    ? `Bill ${money(totals.grandTotal)} — unpaid`
-                    : `Bill ${money(totals.grandTotal)}`}
+                {checkout.isPending ? 'Raising…' : `Raise invoice ${money(totals.grandTotal)}`}
               </Button>
 
               <Button
@@ -661,8 +633,8 @@ export function QuickBillingPage() {
 
               <p className="text-[11px] text-muted-foreground">
                 Billing appends one <code>sale</code> movement per line — stock is never written
-                directly. With no tender the invoice is parked unpaid and can be settled later from
-                Invoices.
+                directly. The invoice is raised unpaid; take the money on it once it exists, here or
+                later from Invoices.
               </p>
             </CardBody>
           </Card>
@@ -822,6 +794,16 @@ export function QuickBillingPage() {
           opens — so printing, settling and correcting it are one screen rather
           than three near-copies. Dismissing it leaves the card above, which
           reopens it. */}
+      {previewing ? (
+        <InvoicePreview
+          page={previewPage}
+          pending={checkout.isPending}
+          error={checkout.error ? (checkout.error as Error).message : null}
+          onConfirm={() => void onBill()}
+          onCancel={() => setPreviewing(false)}
+        />
+      ) : null}
+
       {showLast && lastInvoice ? (
         <InvoiceDetail invoice={lastInvoice} onClose={() => setShowLast(false)} />
       ) : null}

@@ -17,6 +17,7 @@ import {
   type Invoice as DomainInvoice,
   type SaleLine,
   type SaleTotals,
+  invoiceHtml,
 } from '@shop/core';
 import {
   HttpError,
@@ -26,7 +27,7 @@ import {
   type Principal,
 } from '../auth.ts';
 import { prisma } from '../db.ts';
-import { invoiceHtml } from '../pdf/invoice-html.ts';
+
 import { renderPdf } from '../pdf/render.ts';
 
 /**

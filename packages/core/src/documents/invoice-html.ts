@@ -1,4 +1,7 @@
-import { amountInWords, roundMoney, stateCodeOf, stateNameOf, splitTax, taxableRateOf } from '@shop/core';
+import { amountInWords } from '../logic/amount-in-words.ts';
+import { roundMoney } from '../entities/common.ts';
+import { splitTax, stateCodeOf, taxableRateOf } from '../logic/pricing.ts';
+import { stateNameOf } from '../logic/state-codes.ts';
 
 /**
  * The GST invoice as an A4 page.
