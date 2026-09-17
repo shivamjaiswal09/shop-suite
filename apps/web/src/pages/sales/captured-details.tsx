@@ -34,14 +34,29 @@ export function CapturedDetails({
   return (
     <div className={className}>
       {/* From the snapshot, never the master: this is what the bill said when
-          it was issued. */}
+          it was issued, whatever the entity has been corrected to since. */}
       {invoice.billFrom ? (
-        <div className="flex justify-between gap-3 text-sm">
-          <span className="text-muted-foreground">Billed by</span>
-          <span className="truncate font-medium">
-            {invoice.billFrom.legalName}
-            {invoice.billFrom.gstin ? ` · ${invoice.billFrom.gstin}` : ''}
-          </span>
+        <div className="mb-1.5 border-b border-border pb-1.5">
+          <div className="flex justify-between gap-3 text-sm">
+            <span className="text-muted-foreground">Billed by</span>
+            <span className="truncate font-medium">{invoice.billFrom.legalName}</span>
+          </div>
+          {(
+            [
+              ['GSTIN', invoice.billFrom.gstin],
+              ['PAN', invoice.billFrom.pan],
+              ['Address', invoice.billFrom.addressLine],
+              ['Phone', invoice.billFrom.phone],
+              ['Email', invoice.billFrom.email],
+            ] as const
+          )
+            .filter(([, value]) => value)
+            .map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-3 text-xs">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="truncate">{value}</span>
+              </div>
+            ))}
         </div>
       ) : null}
       {invoice.customerName ? (

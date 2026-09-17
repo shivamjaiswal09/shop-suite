@@ -2111,6 +2111,9 @@ export class MockRepositories implements Repositories {
       legalName: entity.legalName,
       gstin: entity.gstin,
       pan: entity.pan,
+      addressLine: entity.addressLine,
+      email: entity.email,
+      phone: entity.phone,
     };
   }
 

@@ -29,6 +29,9 @@ export const billFromSnapshotSchema = z.object({
   legalName: z.string().min(1),
   gstin: z.string().optional(),
   pan: z.string().optional(),
+  addressLine: z.string().optional(),
+  email: z.string().optional(),
+  phone: z.string().optional(),
 });
 export type BillFromSnapshot = z.infer<typeof billFromSnapshotSchema>;
 

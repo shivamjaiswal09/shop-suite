@@ -712,6 +712,9 @@ describe('bill-from entities', () => {
       legalName: 'S.M Automobiles',
       gstin: '29AAAAA0000A1Z5',
       pan: 'AAAAA1111A',
+      addressLine: '12 MG Road, Bengaluru',
+      email: 'billing@smauto.in',
+      phone: '+91 80 4000 1001',
       locationIds: [store.id],
     });
 
@@ -723,9 +726,16 @@ describe('bill-from entities', () => {
       createdBy: actor,
     });
 
-    expect(invoice.billFrom?.legalName).toBe('S.M Automobiles');
-    expect(invoice.billFrom?.gstin).toBe('29AAAAA0000A1Z5');
-    expect(invoice.billFrom?.pan).toBe('AAAAA1111A');
+    // The whole set, because a GST invoice prints the supplier's address as
+    // well as its registration.
+    expect(invoice.billFrom).toMatchObject({
+      legalName: 'S.M Automobiles',
+      gstin: '29AAAAA0000A1Z5',
+      pan: 'AAAAA1111A',
+      addressLine: '12 MG Road, Bengaluru',
+      email: 'billing@smauto.in',
+      phone: '+91 80 4000 1001',
+    });
   });
 
   it('keeps the bill unchanged when the entity is later corrected', async () => {

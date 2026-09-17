@@ -155,6 +155,9 @@ const invoiceWire = (row: TotalsRow & { lines: LineRow[] } & Record<string, unkn
         legalName: row.billFromName,
         gstin: row.billFromGstin ?? undefined,
         pan: row.billFromPan ?? undefined,
+        addressLine: row.billFromAddress ?? undefined,
+        email: row.billFromEmail ?? undefined,
+        phone: row.billFromPhone ?? undefined,
       }
     : undefined,
   businessDate: row.businessDate,
@@ -396,7 +399,15 @@ async function writeInvoice(
     /** Sale-scope bill-field answers, keyed by BillFieldConfig.key. */
     customerDetails?: Record<string, string>;
     /** Snapshot of the entity the bill is issued by, resolved by the caller. */
-    billFrom?: { id: string; legalName: string; gstin: string | null; pan: string | null };
+    billFrom?: {
+      id: string;
+      legalName: string;
+      gstin: string | null;
+      pan: string | null;
+      addressLine: string | null;
+      email: string | null;
+      phone: string | null;
+    };
     lines: SaleLine[];
     totals: SaleTotals;
     orderId?: string | null;
@@ -417,6 +428,9 @@ async function writeInvoice(
       billFromName: args.billFrom?.legalName,
       billFromGstin: args.billFrom?.gstin,
       billFromPan: args.billFrom?.pan,
+      billFromAddress: args.billFrom?.addressLine,
+      billFromEmail: args.billFrom?.email,
+      billFromPhone: args.billFrom?.phone,
       businessDate: businessDateOf(at),
       status: 'unpaid',
       ...args.totals,
@@ -867,6 +881,9 @@ export async function registerSalesRoutes(app: FastifyInstance) {
             legalName: entity.legalName,
             gstin: entity.gstin,
             pan: entity.pan,
+            addressLine: entity.addressLine,
+            email: entity.email,
+            phone: entity.phone,
           };
         }
 

@@ -888,6 +888,9 @@ model Invoice {
   billFromName    String?
   billFromGstin   String?
   billFromPan     String?
+  billFromAddress String?
+  billFromEmail   String?
+  billFromPhone   String?
   businessDate String
   status       InvoiceStatus
 
