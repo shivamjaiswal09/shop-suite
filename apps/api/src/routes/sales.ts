@@ -84,6 +84,7 @@ type LineRow = {
   id: string;
   skuId: string;
   skuCode: string;
+  hsnCode?: string | null;
   name: string;
   qty: Prisma.Decimal;
   unitPrice: Prisma.Decimal;
@@ -109,6 +110,7 @@ const lineWire = (line: LineRow) => ({
   id: line.id,
   skuId: line.skuId,
   skuCode: line.skuCode,
+  hsnCode: line.hsnCode ?? undefined,
   name: line.name,
   qty: line.qty,
   unitPrice: line.unitPrice,
@@ -374,6 +376,7 @@ async function priceSaleLines(
 const lineData = (line: SaleLine) => ({
   skuId: line.skuId,
   skuCode: line.skuCode,
+  hsnCode: line.hsnCode,
   name: line.name,
   qty: line.qty,
   unitPrice: line.unitPrice,

@@ -7,6 +7,8 @@ export const saleLineSchema = z.object({
   id: idSchema,
   skuId: idSchema,
   skuCode: z.string(),
+  /** Commodity code, snapshotted from the SKU at billing. */
+  hsnCode: z.string().optional(),
   name: z.string(),
   qty: quantitySchema.positive(),
   unitPrice: moneySchema.nonnegative(),

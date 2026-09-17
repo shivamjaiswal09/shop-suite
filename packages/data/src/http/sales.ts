@@ -52,6 +52,7 @@ interface WireLine {
   id: string;
   skuId: string;
   skuCode: string;
+  hsnCode?: string | null;
   name: string;
   qty: Wire;
   unitPrice: Wire;
@@ -249,6 +250,7 @@ const toLine = (line: WireLine): SaleLine => ({
   id: line.id,
   skuId: line.skuId,
   skuCode: line.skuCode,
+  hsnCode: line.hsnCode ?? undefined,
   name: line.name,
   qty: num(line.qty),
   unitPrice: num(line.unitPrice),

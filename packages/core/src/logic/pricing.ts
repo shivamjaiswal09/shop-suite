@@ -12,7 +12,7 @@ export type PriceBasis = 'exclusive' | 'inclusive';
 
 export interface PriceLineInput {
   id: string;
-  sku: Pick<Sku, 'id' | 'code' | 'name' | 'sellingPrice' | 'taxId'>;
+  sku: Pick<Sku, 'id' | 'code' | 'name' | 'sellingPrice' | 'taxId' | 'hsnCode'>;
   tax: Pick<Tax, 'id' | 'rate' | 'inclusive'>;
   qty: number;
   /** Absolute discount on the whole line, in currency. */
@@ -73,6 +73,7 @@ export function priceLine(input: PriceLineInput): SaleLine {
     id: input.id,
     skuId: input.sku.id,
     skuCode: input.sku.code,
+    hsnCode: input.sku.hsnCode ?? undefined,
     name: input.sku.name,
     qty: input.qty,
     unitPrice,

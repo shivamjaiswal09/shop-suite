@@ -797,6 +797,53 @@ describe('bill-from entities', () => {
   });
 });
 
+describe('HSN on a billed line', () => {
+  it('snapshots the code onto the line it billed', async () => {
+    // Like skuCode and name: an HSN corrected on the SKU next month must not
+    // change the classification a bill was issued under.
+    const { repos, store, counterId, actor } = await setup();
+    const category = (await repos.masters.categories())[0]!;
+    const product = await repos.products.createProduct({
+      name: 'Tyre',
+      categoryId: category.id,
+      createdBy: actor,
+    });
+    const uom = (await repos.masters.unitsOfMeasure())[0]!;
+    const tax = (await repos.masters.taxes())[0]!;
+    const sku = await repos.products.createSku({
+      productId: product.id,
+      code: 'TY-1',
+      hsnCode: '4011',
+      uomId: uom.id,
+      taxId: tax.id,
+      createdBy: actor,
+      openingStock: { locationId: store.id, qty: 5 },
+    });
+
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      createdBy: actor,
+    });
+    expect(invoice.lines[0]!.hsnCode).toBe('4011');
+
+    await repos.products.updateSku(sku.id, { hsnCode: '9999' }, actor);
+    expect((await repos.invoices.byId(invoice.id))?.lines[0]!.hsnCode).toBe('4011');
+  });
+
+  it('leaves it absent when the SKU has none', async () => {
+    const { repos, store, sku, counterId, actor } = await setup();
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      createdBy: actor,
+    });
+    expect(invoice.lines[0]!.hsnCode ?? null).toBeNull();
+  });
+});
+
 describe('inter-state supply', () => {
   const billedTo = async (customerGstin: string | undefined, supplierGstin: string) => {
     const base = await setup();
