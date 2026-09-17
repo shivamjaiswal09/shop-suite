@@ -13,12 +13,12 @@ export function CapturedDetails({
   fields,
   className,
 }: {
-  invoice: Pick<Invoice, 'customerName' | 'customerDetails'>;
+  invoice: Pick<Invoice, 'customerName' | 'customerDetails' | 'billFrom'>;
   fields: BillFieldConfig[];
   className?: string;
 }) {
   const entries = Object.entries(invoice.customerDetails ?? {});
-  if (!invoice.customerName && entries.length === 0) return null;
+  if (!invoice.billFrom && !invoice.customerName && entries.length === 0) return null;
 
   /**
    * The configured label wins verbatim — capitalising it would quietly rewrite
@@ -33,6 +33,17 @@ export function CapturedDetails({
 
   return (
     <div className={className}>
+      {/* From the snapshot, never the master: this is what the bill said when
+          it was issued. */}
+      {invoice.billFrom ? (
+        <div className="flex justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">Billed by</span>
+          <span className="truncate font-medium">
+            {invoice.billFrom.legalName}
+            {invoice.billFrom.gstin ? ` · ${invoice.billFrom.gstin}` : ''}
+          </span>
+        </div>
+      ) : null}
       {invoice.customerName ? (
         <div className="flex justify-between gap-3 text-sm">
           <span className="text-muted-foreground">Customer</span>

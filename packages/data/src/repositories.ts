@@ -1,6 +1,7 @@
 import type {
   AuditLog,
   BillFieldConfig,
+  BillFrom,
   Brand,
   Category,
   StockLocation,
@@ -66,6 +67,8 @@ export interface NewInvoice {
   customerFields?: Record<string, string>;
   /** Sale-scope answers, keyed by BillFieldConfig.key. */
   customerDetails?: Record<string, string>;
+  /** The entity to issue this bill under. Must be mapped to the store. */
+  billFromId?: string;
   lines: SaleLineInput[];
   createdBy: string;
   /** Set when the invoice is produced from a confirmed order. */
@@ -113,6 +116,25 @@ export interface CapturePayment {
   /** Required. A repeat capture with the same key returns the original row. */
   idempotencyKey: string;
   createdBy: string;
+}
+
+export interface NewBillFrom {
+  legalName: string;
+  gstin?: string;
+  pan?: string;
+  addressLine?: string;
+  /** Branches allowed to bill under it. */
+  locationIds?: string[];
+}
+
+export interface BillFromPatch {
+  legalName?: string;
+  gstin?: string | null;
+  pan?: string | null;
+  addressLine?: string | null;
+  /** Replaces the whole mapping when given; omitted leaves it alone. */
+  locationIds?: string[];
+  active?: boolean;
 }
 
 export interface NewBrand {
@@ -573,6 +595,9 @@ export interface MasterRepository {
   reasonCodes(usage?: ReasonCode['usage'], includeInactive?: boolean): Promise<ReasonCode[]>;
   billFields(includeInactive?: boolean): Promise<BillFieldConfig[]>;
   brands(includeInactive?: boolean): Promise<Brand[]>;
+  billFrom(includeInactive?: boolean): Promise<BillFrom[]>;
+  createBillFrom(input: NewBillFrom): Promise<BillFrom>;
+  updateBillFrom(id: string, patch: BillFromPatch, actorId: string): Promise<BillFrom>;
   createBrand(input: NewBrand): Promise<Brand>;
   updateBrand(id: string, patch: BrandPatch, actorId: string): Promise<Brand>;
   /**

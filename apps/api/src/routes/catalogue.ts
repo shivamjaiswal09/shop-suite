@@ -1,5 +1,6 @@
 import type {
   BillFieldConfig,
+  BillFrom,
   Brand,
   Category,
   Customer,
@@ -194,6 +195,19 @@ const publicProduct = (row: Product & { brand?: Brand | null; subBrand?: Brand |
   createdAt: row.createdAt.toISOString(),
 });
 
+const publicBillFrom = (row: BillFrom & { locations?: { locationId: string }[] }) => ({
+  id: row.id,
+  companyId: row.companyId,
+  legalName: row.legalName,
+  gstin: row.gstin ?? undefined,
+  pan: row.pan ?? undefined,
+  addressLine: row.addressLine ?? undefined,
+  /// Which branches may bill under it. Sent with the entity because the two are
+  /// always wanted together — a picker needs both to filter by store.
+  locationIds: (row.locations ?? []).map((l) => l.locationId),
+  active: row.active,
+});
+
 const publicBrand = (row: Brand) => ({
   id: row.id,
   companyId: row.companyId,
@@ -240,6 +254,17 @@ async function assertTaxInCompany(taxId: string, companyId: string) {
 async function assertUomInCompany(uomId: string, companyId: string) {
   const uom = await prisma.unitOfMeasure.findFirst({ where: { id: uomId, companyId } });
   if (!uom) throw new HttpError(400, 'Unknown unit of measure for this company');
+}
+
+/** Every id must be a location of this company — one query, not N. */
+async function assertLocationsInCompany(locationIds: string[], companyId: string) {
+  if (locationIds.length === 0) return;
+  const found = await prisma.stockLocation.count({
+    where: { id: { in: locationIds }, companyId },
+  });
+  if (found !== new Set(locationIds).size) {
+    throw new HttpError(400, 'Unknown location for this company');
+  }
 }
 
 async function assertLocationInCompany(locationId: string, companyId: string) {
@@ -544,6 +569,124 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
       summary: `Tax ${tax.name} updated`,
     });
     return publicTax(tax);
+  });
+
+  /* -------------------------------------------------------------- bill from */
+
+  app.get('/bill-from', async (request) => {
+    const query = listQuery.parse(request.query);
+    const { companyId } = requireCompany(await who(request), query.companyId);
+    const rows = await prisma.billFrom.findMany({
+      where: { companyId, ...activeFilter(query.includeInactive) },
+      include: { locations: { select: { locationId: true } } },
+      orderBy: { legalName: 'asc' },
+    });
+    return rows.map(publicBillFrom);
+  });
+
+  app.post('/bill-from', async (request, reply) => {
+    const body = z
+      .object({
+        companyId: z.string().optional(),
+        legalName: z.string().min(1),
+        gstin: z.string().trim().optional(),
+        pan: z.string().trim().optional(),
+        addressLine: z.string().trim().optional(),
+        locationIds: z.array(z.string()).default([]),
+      })
+      .parse(request.body);
+    const { caller, companyId } = await gate(request, body.companyId, MANAGE);
+
+    const legalName = body.legalName.trim();
+    await assertFree(
+      prisma.billFrom.findFirst({ where: { companyId, legalName: sameText(legalName) } }),
+      `An entity called ${legalName} already exists`,
+    );
+    await assertLocationsInCompany(body.locationIds, companyId);
+
+    const created = await prisma.billFrom.create({
+      data: {
+        companyId,
+        legalName,
+        gstin: body.gstin || null,
+        pan: body.pan || null,
+        addressLine: body.addressLine || null,
+        locations: { create: body.locationIds.map((locationId) => ({ locationId })) },
+      },
+      include: { locations: { select: { locationId: true } } },
+    });
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'bill_from',
+      entityId: created.id,
+      action: 'create',
+      summary: `Bill-from entity ${created.legalName} added`,
+    });
+    reply.code(201);
+    return publicBillFrom(created);
+  });
+
+  app.patch('/bill-from/:id', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const patch = z
+      .object({
+        legalName: z.string().min(1).optional(),
+        gstin: z.string().trim().nullish(),
+        pan: z.string().trim().nullish(),
+        addressLine: z.string().trim().nullish(),
+        /// Replaces the whole mapping when given; omitted leaves it alone.
+        locationIds: z.array(z.string()).optional(),
+        active: z.boolean().optional(),
+      })
+      .parse(request.body);
+
+    const existing = found(await prisma.billFrom.findUnique({ where: { id } }), 'BillFrom', id);
+    const { caller, companyId } = await gate(request, existing.companyId, MANAGE);
+
+    const legalName = patch.legalName?.trim();
+    if (legalName) {
+      await assertFree(
+        prisma.billFrom.findFirst({
+          where: { companyId, legalName: sameText(legalName), NOT: { id } },
+        }),
+        `An entity called ${legalName} already exists`,
+      );
+    }
+    if (patch.locationIds) await assertLocationsInCompany(patch.locationIds, companyId);
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (patch.locationIds) {
+        // Replaced wholesale rather than diffed: the caller sends the complete
+        // set of ticked branches, and a diff would only be a slower way to
+        // arrive at the same rows.
+        await tx.billFromLocation.deleteMany({ where: { billFromId: id } });
+        await tx.billFromLocation.createMany({
+          data: patch.locationIds.map((locationId) => ({ billFromId: id, locationId })),
+        });
+      }
+      return tx.billFrom.update({
+        where: { id },
+        data: {
+          legalName,
+          gstin: patch.gstin === undefined ? undefined : patch.gstin || null,
+          pan: patch.pan === undefined ? undefined : patch.pan || null,
+          addressLine: patch.addressLine === undefined ? undefined : patch.addressLine || null,
+          active: patch.active,
+        },
+        include: { locations: { select: { locationId: true } } },
+      });
+    });
+
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'bill_from',
+      entityId: id,
+      action: 'update',
+      summary: `Bill-from entity ${updated.legalName} updated`,
+    });
+    return publicBillFrom(updated);
   });
 
   /* ----------------------------------------------------------------- brands */

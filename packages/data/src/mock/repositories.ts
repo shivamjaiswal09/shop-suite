@@ -1,5 +1,6 @@
 import {
   type BillFieldConfig,
+  billFromSchema,
   brandSchema,
   calcClosing,
   calcTotals,
@@ -503,6 +504,70 @@ export class MockRepositories implements Repositories {
       this.store.paymentMethods.push(method);
       this.logCreate('payment_method', method.id, `Payment method ${method.name} created`, input.createdBy);
       return tick(method);
+    },
+
+    billFrom: (includeInactive) =>
+      tick(
+        this.store.billFromEntities
+          .filter((e) => includeInactive || e.active)
+          .slice()
+          .sort((a, b) => a.legalName.localeCompare(b.legalName)),
+      ),
+
+    createBillFrom: async (input) => {
+      const legalName = input.legalName.trim();
+      if (
+        this.store.billFromEntities.some(
+          (e) => e.legalName.toLowerCase() === legalName.toLowerCase(),
+        )
+      ) {
+        throw new Error(`An entity called ${legalName} already exists`);
+      }
+      const entity = billFromSchema.parse({
+        id: this.store.nextId('bfr'),
+        companyId: this.store.company.id,
+        legalName,
+        gstin: input.gstin?.trim() || undefined,
+        pan: input.pan?.trim() || undefined,
+        addressLine: input.addressLine?.trim() || undefined,
+        locationIds: input.locationIds ?? [],
+        active: true,
+      });
+      this.store.billFromEntities.push(entity);
+      return tick(entity);
+    },
+
+    updateBillFrom: async (id, patch, actorId) => {
+      const entity = this.store.billFromEntities.find((e) => e.id === id);
+      if (!entity) throw new NotFoundError('BillFrom', id);
+      const legalName = patch.legalName?.trim();
+      if (
+        legalName &&
+        this.store.billFromEntities.some(
+          (e) => e.id !== id && e.legalName.toLowerCase() === legalName.toLowerCase(),
+        )
+      ) {
+        throw new Error(`An entity called ${legalName} already exists`);
+      }
+      // Undefined leaves a field alone; null clears it. Spelt out rather than
+      // spread, so a cleared GSTIN does not read as an untouched one.
+      if (legalName) entity.legalName = legalName;
+      if (patch.gstin !== undefined) entity.gstin = patch.gstin?.trim() || undefined;
+      if (patch.pan !== undefined) entity.pan = patch.pan?.trim() || undefined;
+      if (patch.addressLine !== undefined) {
+        entity.addressLine = patch.addressLine?.trim() || undefined;
+      }
+      if (patch.locationIds !== undefined) entity.locationIds = patch.locationIds;
+      if (patch.active !== undefined) entity.active = patch.active;
+
+      this.store.bumpAudit({
+        entity: 'bill_from',
+        entityId: id,
+        action: 'update',
+        summary: `Bill-from entity ${entity.legalName} updated`,
+        actorId,
+      });
+      return tick(entity);
     },
 
     brands: (includeInactive) =>
@@ -1221,12 +1286,14 @@ export class MockRepositories implements Repositories {
       const lines = this.priceLines(input.lines);
       this.assertAvailable(lines, input.storeId);
       const customerId = this.resolveCustomer(input.customerId, input.customerFields);
+      const billFrom = this.resolveBillFrom(input.billFromId, input.storeId);
       const invoice = this.writeInvoice({
         storeId: input.storeId,
         counterId: input.counterId,
         customerId,
         customerName: input.customerFields?.name ?? input.customerName,
         customerDetails: input.customerDetails,
+        billFrom,
         lines,
         totals: calcTotals(lines),
         createdBy: input.createdBy,
@@ -2021,12 +2088,36 @@ export class MockRepositories implements Repositories {
     };
   }
 
+  /**
+   * Snapshots the entity a bill is issued by.
+   *
+   * Checked against the store rather than just the company: an entity is only
+   * billable from the branches it was mapped to, and skipping that would make
+   * the mapping decorative.
+   */
+  private resolveBillFrom(billFromId: string | undefined, storeId: string): Invoice['billFrom'] {
+    if (!billFromId) return undefined;
+    const entity = this.store.billFromEntities.find((e) => e.id === billFromId && e.active);
+    if (!entity) throw new NotFoundError('BillFrom', billFromId);
+    if (!entity.locationIds.includes(storeId)) {
+      const store = this.store.locations.find((l) => l.id === storeId);
+      throw new Error(`${entity.legalName} is not billable from ${store?.name ?? storeId}`);
+    }
+    return {
+      id: entity.id,
+      legalName: entity.legalName,
+      gstin: entity.gstin,
+      pan: entity.pan,
+    };
+  }
+
   private writeInvoice(args: {
     storeId: string;
     counterId: string;
     customerId?: string;
     customerName?: string;
     customerDetails?: Record<string, string>;
+    billFrom?: Invoice['billFrom'];
     lines: SaleLine[];
     totals: Invoice['totals'];
     createdBy: string;
@@ -2038,6 +2129,7 @@ export class MockRepositories implements Repositories {
       number: this.store.nextNumber('INV', this.locationCode(args.storeId)),
       orderId: args.orderId,
       customerDetails: args.customerDetails,
+      billFrom: args.billFrom,
       storeId: args.storeId,
       counterId: args.counterId,
       customerId: args.customerId,

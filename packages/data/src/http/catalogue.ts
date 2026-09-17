@@ -1,5 +1,6 @@
 import type {
   BillFieldConfig,
+  BillFrom,
   Brand,
   Category,
   Customer,
@@ -128,6 +129,12 @@ export function createCatalogueRepositories(fetcher: Fetcher): {
     createReasonCode: (input) => fetcher.post<ReasonCode>('/reason-codes', body(input)),
 
     brands: (includeInactive) => fetcher.get<Brand[]>('/brands', { includeInactive }),
+
+    billFrom: (includeInactive) => fetcher.get<BillFrom[]>('/bill-from', { includeInactive }),
+
+    createBillFrom: (input) => fetcher.post<BillFrom>('/bill-from', input),
+
+    updateBillFrom: (id, patch) => fetcher.patch<BillFrom>(`/bill-from/${id}`, patch),
 
     createBrand: (input) => fetcher.post<Brand>('/brands', input),
 

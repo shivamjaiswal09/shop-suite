@@ -64,6 +64,8 @@ export interface CheckoutInput {
   customerFields?: Record<string, string>;
   /** Sale-scope answers, keyed by BillFieldConfig.key. */
   customerDetails?: Record<string, string>;
+  /** The entity to issue this bill under. */
+  billFromId?: string;
   lines: SaleLineInput[];
   /** Empty = park the invoice unpaid. Multiple entries = split payment. */
   tenders: Tender[];
@@ -88,6 +90,7 @@ export function useCheckout() {
         customerName: input.customerName,
         customerFields: input.customerFields,
         customerDetails: input.customerDetails,
+        billFromId: input.billFromId,
         lines: input.lines,
         createdBy: input.createdBy,
       });

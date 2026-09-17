@@ -13,3 +13,4 @@ export * from './audit.ts';
 export * from './discrepancy.ts';
 export * from './bill-field.ts';
 export * from './brand.ts';
+export * from './bill-from.ts';

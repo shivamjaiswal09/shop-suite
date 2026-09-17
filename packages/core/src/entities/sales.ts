@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { billFromSnapshotSchema } from './bill-from.ts';
 import { businessDateSchema, idSchema, moneySchema, quantitySchema, timestampSchema } from './common.ts';
 
 /** A priced line, shared shape between cart / order / invoice. */
@@ -61,6 +62,8 @@ export const invoiceSchema = z.object({
   customerName: z.string().optional(),
   /** Sale-scope bill-field answers, keyed by BillFieldConfig.key. */
   customerDetails: z.record(z.string()).optional(),
+  /** The entity that issued this bill, as it read when issued. */
+  billFrom: billFromSnapshotSchema.optional(),
   businessDate: businessDateSchema,
   status: invoiceStatusSchema,
   lines: z.array(saleLineSchema),

@@ -1,5 +1,12 @@
 import type { Category, ReasonCode, Tax } from '@shop/core';
-import type { BillFieldPatch, BrandPatch, NewBillField, NewBrand } from '@shop/data';
+import type {
+  BillFieldPatch,
+  BillFromPatch,
+  BrandPatch,
+  NewBillField,
+  NewBillFrom,
+  NewBrand,
+} from '@shop/data';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { qk } from '../query-keys';
@@ -196,6 +203,42 @@ export function useDeleteBrand() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['masters', 'brands'] });
       void queryClient.invalidateQueries({ queryKey: ['products'] });
+    },
+  });
+}
+
+/**
+ * The legal entities this company bills as, with the branches each may bill
+ * from. Filtered per store by `billFromFor` in `@shop/core`.
+ */
+export function useBillFromEntities(includeInactive = false) {
+  const repos = useRepositories();
+  return useQuery({
+    queryKey: ['masters', 'bill-from', includeInactive],
+    queryFn: () => repos.masters.billFrom(includeInactive),
+    staleTime: STALE.ORG,
+  });
+}
+
+export function useCreateBillFrom() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: NewBillFrom) => repos.masters.createBillFrom(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['masters', 'bill-from'] });
+    },
+  });
+}
+
+export function useUpdateBillFrom() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch, actorId }: { id: string; patch: BillFromPatch; actorId: string }) =>
+      repos.masters.updateBillFrom(id, patch, actorId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['masters', 'bill-from'] });
     },
   });
 }

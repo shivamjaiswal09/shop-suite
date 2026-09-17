@@ -149,6 +149,14 @@ const invoiceWire = (row: TotalsRow & { lines: LineRow[] } & Record<string, unkn
   customerId: row.customerId,
   customerName: row.customerName,
   customerDetails: (row.customerDetails as Record<string, string> | null) ?? undefined,
+  billFrom: row.billFromName
+    ? {
+        id: row.billFromId ?? undefined,
+        legalName: row.billFromName,
+        gstin: row.billFromGstin ?? undefined,
+        pan: row.billFromPan ?? undefined,
+      }
+    : undefined,
   businessDate: row.businessDate,
   status: row.status,
   lines: row.lines.map(lineWire),
@@ -387,6 +395,8 @@ async function writeInvoice(
     customerName?: string | null;
     /** Sale-scope bill-field answers, keyed by BillFieldConfig.key. */
     customerDetails?: Record<string, string>;
+    /** Snapshot of the entity the bill is issued by, resolved by the caller. */
+    billFrom?: { id: string; legalName: string; gstin: string | null; pan: string | null };
     lines: SaleLine[];
     totals: SaleTotals;
     orderId?: string | null;
@@ -403,6 +413,10 @@ async function writeInvoice(
       customerId: args.customerId ?? null,
       customerName: args.customerName ?? null,
       customerDetails: args.customerDetails,
+      billFromId: args.billFrom?.id,
+      billFromName: args.billFrom?.legalName,
+      billFromGstin: args.billFrom?.gstin,
+      billFromPan: args.billFrom?.pan,
       businessDate: businessDateOf(at),
       status: 'unpaid',
       ...args.totals,
@@ -775,6 +789,7 @@ export async function registerSalesRoutes(app: FastifyInstance) {
         customerDetails: z.record(z.string()).optional(),
         /** Customer-scope answers: identify the person, stored on them. */
         customerFields: z.record(z.string()).optional(),
+        billFromId: z.string().optional(),
         orderId: z.string().optional(),
         lines: z.array(saleLineInput),
       })
@@ -834,11 +849,33 @@ export async function registerSalesRoutes(app: FastifyInstance) {
           }
         }
 
+        // Validated against the store, not just the company: an entity is only
+        // billable from the branches it was mapped to, and accepting an id
+        // without that check would make the mapping decorative.
+        let billFrom;
+        if (body.billFromId) {
+          const entity = await tx.billFrom.findFirst({
+            where: { id: body.billFromId, companyId, active: true },
+            include: { locations: { where: { locationId: store.id }, select: { locationId: true } } },
+          });
+          if (!entity) throw new HttpError(400, 'Unknown bill-from entity for this company');
+          if (entity.locations.length === 0) {
+            throw new HttpError(400, `${entity.legalName} is not billable from ${store.name}`);
+          }
+          billFrom = {
+            id: entity.id,
+            legalName: entity.legalName,
+            gstin: entity.gstin,
+            pan: entity.pan,
+          };
+        }
+
         const written = await writeInvoice(tx, {
           companyId,
           actorId: caller.userId,
           store,
           counterId: body.counterId,
+          billFrom,
           customerId,
           customerName: fields.name ?? body.customerName ?? customer?.name,
           customerDetails: body.customerDetails,

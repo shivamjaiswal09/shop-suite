@@ -1,10 +1,11 @@
 import type { Invoice, Sku } from '@shop/core';
-import { missingRequiredFields, splitBillFields } from '@shop/core';
+import { billFromFor, missingRequiredFields, splitBillFields } from '@shop/core';
 import {
   useCartPricing,
   useCartIsForeign,
   useCartStore,
   useBillFields,
+  useBillFromEntities,
   useCheckout,
   useCreateOrder,
   useCustomerByPhone,
@@ -56,11 +57,26 @@ export function QuickBillingPage() {
   /* ------------------------------------------------------------ the wizard */
 
   const billFields = useBillFields();
+  const billFromEntities = useBillFromEntities();
   const [step, setStep] = useState<'cart' | 'checkout'>('cart');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [showMissing, setShowMissing] = useState(false);
 
   const activeFields = useMemo(() => billFields.data ?? [], [billFields.data]);
+
+  /* ------------------------------------------------------- who is billing */
+
+  const billFromOptions = useMemo(
+    () => billFromFor(billFromEntities.data ?? [], store?.id),
+    [billFromEntities.data, store?.id],
+  );
+  const [billFromId, setBillFromId] = useState('');
+  // One option is not a decision. Picked here rather than defaulted in state so
+  // it follows the store switcher without a stale id surviving the change.
+  const resolvedBillFrom =
+    billFromOptions.length === 1
+      ? billFromOptions[0]
+      : billFromOptions.find((e) => e.id === billFromId);
   const missing = missingRequiredFields(activeFields, fieldValues);
   const missingKeys = new Set(showMissing ? missing.map((f) => f.key) : []);
 
@@ -132,6 +148,7 @@ export function QuickBillingPage() {
       customerName: split.customer.name ?? cart.customerName,
       customerFields: split.customer,
       customerDetails: split.sale,
+      billFromId: resolvedBillFrom?.id,
       lines: saleLines(),
       tenders: tenders.filter((t) => t.amount > 0),
       createdBy: user.id,
@@ -140,6 +157,7 @@ export function QuickBillingPage() {
     cart.clear();
     setTenders([]);
     setFieldValues({});
+    setBillFromId('');
     setShowMissing(false);
     setStep('cart');
   };
@@ -371,10 +389,47 @@ export function QuickBillingPage() {
             </Button>
           ) : null}
 
-          {step === 'checkout' && activeFields.length > 0 ? (
+          {step === 'checkout' && (activeFields.length > 0 || billFromOptions.length > 0) ? (
             <Card>
               <CardHeader title="Customer" description="Recorded against this bill." />
               <CardBody className="space-y-4">
+                {/* The bill's two parties, in the order the document prints
+                    them: who it is from, then who it is to. */}
+                {billFromOptions.length > 0 ? (
+                  <div className="rounded-md border border-border p-3">
+                    {billFromOptions.length === 1 ? (
+                      <>
+                        <p className="text-xs text-muted-foreground">Billing as</p>
+                        <p className="mt-0.5 font-medium">{resolvedBillFrom?.legalName}</p>
+                      </>
+                    ) : (
+                      <>
+                        <Label htmlFor="bill-from">Billing as</Label>
+                        <Select
+                          id="bill-from"
+                          value={billFromId}
+                          onChange={(e) => setBillFromId(e.target.value)}
+                        >
+                          <option value="">— choose an entity —</option>
+                          {billFromOptions.map((e) => (
+                            <option key={e.id} value={e.id}>
+                              {e.legalName}
+                            </option>
+                          ))}
+                        </Select>
+                      </>
+                    )}
+                    {/* Shown before billing, because it is what will print. */}
+                    {resolvedBillFrom && (resolvedBillFrom.gstin || resolvedBillFrom.pan) ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {resolvedBillFrom.gstin ? `GSTIN ${resolvedBillFrom.gstin}` : ''}
+                        {resolvedBillFrom.gstin && resolvedBillFrom.pan ? ' · ' : ''}
+                        {resolvedBillFrom.pan ? `PAN ${resolvedBillFrom.pan}` : ''}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <CustomerStep
                   fields={activeFields}
                   values={fieldValues}
@@ -471,6 +526,9 @@ export function QuickBillingPage() {
               {/* The gate lives on the action now that the details sit on the
                   same screen. Named rather than merely disabled: a dead button
                   with no reason given is the worst of both. */}
+              {showMissing && billFromOptions.length > 1 && !resolvedBillFrom ? (
+                <p className="text-xs text-destructive">Choose which entity to bill as.</p>
+              ) : null}
               {showMissing && missing.length > 0 ? (
                 <p className="text-xs text-destructive">
                   Fill in {missing.map((f) => f.label).join(', ')} before billing.
@@ -485,7 +543,8 @@ export function QuickBillingPage() {
                   // Revealed on an attempt, so the form does not open covered in
                   // errors for fields nobody has had a chance to fill in yet.
                   setShowMissing(true);
-                  if (missingRequiredFields(activeFields, fieldValues).length === 0) {
+                  const undecided = billFromOptions.length > 1 && !resolvedBillFrom;
+                  if (!undecided && missingRequiredFields(activeFields, fieldValues).length === 0) {
                     void onBill();
                   }
                 }}

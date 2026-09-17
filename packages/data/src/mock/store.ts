@@ -1,5 +1,6 @@
 import type {
   BillFieldConfig,
+  BillFrom,
   Brand,
   AuditLog,
   Category,
@@ -72,6 +73,7 @@ export class InMemoryStore {
 
   billFields: BillFieldConfig[] = [];
   brands: Brand[] = [];
+  billFromEntities: BillFrom[] = [];
 
   auditLogs: AuditLog[] = [];
 

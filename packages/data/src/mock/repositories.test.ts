@@ -1,3 +1,4 @@
+import { billFromFor } from '@shop/core';
 import { describe, expect, it } from 'vitest';
 import { DuplicateBarcodeError, InsufficientStockError, MockRepositories } from './repositories';
 
@@ -663,6 +664,122 @@ describe('brands and sub-brands', () => {
     expect(
       (await repos.products.listProducts()).find((p) => p.id === withSub.id)?.brand,
     ).toBe('Ceat · Milaze X5');
+  });
+});
+
+describe('bill-from entities', () => {
+  const withEntities = async () => {
+    const base = await setup();
+    const other = (await base.repos.org.locations('store')).find((l) => l.id !== base.store.id);
+    return { ...base, otherStoreId: other?.id };
+  };
+
+  it('offers a branch only the entities mapped to it', async () => {
+    const { repos, store, otherStoreId } = await withEntities();
+    const mine = await repos.masters.createBillFrom({
+      legalName: 'S.M Automobiles',
+      gstin: '29AAAAA0000A1Z5',
+      locationIds: [store.id],
+    });
+    await repos.masters.createBillFrom({
+      legalName: 'S.M Traders',
+      locationIds: otherStoreId ? [otherStoreId] : [],
+    });
+
+    const offered = billFromFor(await repos.masters.billFrom(), store.id);
+    expect(offered.map((e) => e.id)).toEqual([mine.id]);
+  });
+
+  it('stops offering a deactivated entity', async () => {
+    const { repos, store, actor } = await withEntities();
+    const entity = await repos.masters.createBillFrom({
+      legalName: 'Retired Entity',
+      locationIds: [store.id],
+    });
+
+    await repos.masters.updateBillFrom(entity.id, { active: false }, actor);
+
+    expect(billFromFor(await repos.masters.billFrom(true), store.id)).toHaveLength(0);
+  });
+
+  it('snapshots the entity onto the bill', async () => {
+    const { repos, store, sku, counterId, actor } = await withEntities();
+    const entity = await repos.masters.createBillFrom({
+      legalName: 'S.M Automobiles',
+      gstin: '29AAAAA0000A1Z5',
+      pan: 'AAAAA1111A',
+      locationIds: [store.id],
+    });
+
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      billFromId: entity.id,
+      createdBy: actor,
+    });
+
+    expect(invoice.billFrom?.legalName).toBe('S.M Automobiles');
+    expect(invoice.billFrom?.gstin).toBe('29AAAAA0000A1Z5');
+    expect(invoice.billFrom?.pan).toBe('AAAAA1111A');
+  });
+
+  it('keeps the bill unchanged when the entity is later corrected', async () => {
+    // A tax invoice has to keep saying what it said when it was issued. Fixing
+    // a mistyped GSTIN next month must not rewrite the customer's copy.
+    const { repos, store, sku, counterId, actor } = await withEntities();
+    const entity = await repos.masters.createBillFrom({
+      legalName: 'S.M Automobiles',
+      gstin: 'WRONG-GSTIN',
+      locationIds: [store.id],
+    });
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      billFromId: entity.id,
+      createdBy: actor,
+    });
+
+    await repos.masters.updateBillFrom(
+      entity.id,
+      { legalName: 'S.M Automobiles Pvt Ltd', gstin: '29AAAAA0000A1Z5' },
+      actor,
+    );
+
+    const reread = await repos.invoices.byId(invoice.id);
+    expect(reread?.billFrom?.legalName).toBe('S.M Automobiles');
+    expect(reread?.billFrom?.gstin).toBe('WRONG-GSTIN');
+  });
+
+  it('refuses an entity not billable from that branch', async () => {
+    // Otherwise the mapping is decorative.
+    const { repos, store, sku, counterId, actor, otherStoreId } = await withEntities();
+    const elsewhere = await repos.masters.createBillFrom({
+      legalName: 'Elsewhere Ltd',
+      locationIds: otherStoreId ? [otherStoreId] : [],
+    });
+
+    await expect(
+      repos.invoices.create({
+        storeId: store.id,
+        counterId,
+        lines: [{ skuId: sku.id, qty: 1 }],
+        billFromId: elsewhere.id,
+        createdBy: actor,
+      }),
+    ).rejects.toThrow(/not billable/i);
+  });
+
+  it('bills without one, so a company that configures nothing is unaffected', async () => {
+    const { repos, store, sku, counterId, actor } = await withEntities();
+    const invoice = await repos.invoices.create({
+      storeId: store.id,
+      counterId,
+      lines: [{ skuId: sku.id, qty: 1 }],
+      createdBy: actor,
+    });
+    expect(invoice.billFrom).toBeUndefined();
   });
 });
 

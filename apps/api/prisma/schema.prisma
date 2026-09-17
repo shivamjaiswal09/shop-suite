@@ -38,6 +38,7 @@ model Company {
   categories        Category[]
   billFields        BillFieldConfig[]
   brands            Brand[]
+  billFromEntities  BillFrom[]
   unitsOfMeasure    UnitOfMeasure[]
   taxes             Tax[]
   customers         Customer[]
@@ -86,6 +87,7 @@ model StockLocation {
   suppliedBy     StoreWarehouseLink[] @relation("StoreLinks")
   suppliesStores StoreWarehouseLink[] @relation("WarehouseLinks")
   userAccess     UserLocationAccess[]
+  billFromLinks  BillFromLocation[]
 
   stockMovements    StockMovement[]
   stockReservations StockReservation[]
@@ -296,6 +298,45 @@ model Brand {
   @@unique([companyId, parentId, name])
   @@index([companyId, parentId])
   @@map("brands")
+}
+
+/// A legal entity this company issues bills as.
+///
+/// A GSTIN sat on both Company and StockLocation and nothing read either, so
+/// two places could answer "who is this bill from". This is the one place now.
+model BillFrom {
+  id          String  @id @default(cuid())
+  companyId   String
+  /// Printed on the invoice as the supplier.
+  legalName   String
+  gstin       String?
+  pan         String?
+  addressLine String?
+  active      Boolean @default(true)
+
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locations BillFromLocation[]
+  invoices  Invoice[]
+
+  @@unique([companyId, legalName])
+  @@index([companyId, active])
+  @@map("bill_from")
+}
+
+/// Which branches may bill under which entity.
+///
+/// Cascading on both sides: the mapping is not a fact in its own right, so
+/// removing either end should take it along rather than leave a dangling row.
+model BillFromLocation {
+  billFromId String
+  locationId String
+
+  billFrom BillFrom      @relation(fields: [billFromId], references: [id], onDelete: Cascade)
+  location StockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([billFromId, locationId])
+  @@index([locationId])
+  @@map("bill_from_locations")
 }
 
 model UnitOfMeasure {
@@ -839,6 +880,13 @@ model Invoice {
   /// Sale-scope bill-field answers, keyed by BillFieldConfig.key. Snapshotted
   /// so renaming or deactivating a field cannot change a bill already issued.
   customerDetails Json?
+  /// The entity this bill was issued by. The id is for reporting; the three
+  /// copies are the document — a tax invoice must keep saying what it said when
+  /// it was issued, whatever the master is corrected to afterwards.
+  billFromId      String?
+  billFromName    String?
+  billFromGstin   String?
+  billFromPan     String?
   businessDate String
   status       InvoiceStatus
 
@@ -859,6 +907,7 @@ model Invoice {
   store    StockLocation @relation(fields: [storeId], references: [id], onDelete: NoAction)
   order    Order?        @relation(fields: [orderId], references: [id], onDelete: NoAction)
   customer Customer?     @relation(fields: [customerId], references: [id], onDelete: NoAction)
+  billFrom BillFrom?     @relation(fields: [billFromId], references: [id], onDelete: NoAction)
   lines    InvoiceLine[]
   payments Payment[]
   returns  SalesReturn[]
