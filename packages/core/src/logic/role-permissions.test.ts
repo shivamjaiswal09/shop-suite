@@ -202,3 +202,21 @@ describe('a role that can bill can read stock', () => {
     expect(has(normalizeRolePermissions(['closing.perform']), 'inventory.view')).toBe(false);
   });
 });
+
+describe('a permission snapshot taken before a rule changed', () => {
+  it('gains the new implication when it is read back', () => {
+    // Sessions now carry the permissions as they stood at sign-in, and the API
+    // re-normalises that snapshot on every request. A snapshot written before
+    // billing implied `inventory.view` must therefore still pick it up, or the
+    // people already signed in stay broken until they sign in again.
+    const snapshotFromBefore = ['view.sales.billing', 'sales.bill'];
+    expect(has(normalizeRolePermissions(snapshotFromBefore), 'inventory.view')).toBe(true);
+  });
+
+  it('is unchanged by being normalised twice', () => {
+    // The snapshot is normalised when written and again when read; the second
+    // pass must be a no-op or the two would disagree about what a role grants.
+    const once = normalizeRolePermissions(['sales.bill', 'closing.perform']);
+    expect(normalizeRolePermissions(once)).toEqual(once);
+  });
+});
