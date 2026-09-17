@@ -32,6 +32,13 @@ const IMPLIED: Partial<Record<Permission, readonly Permission[]>> = {
   // matters, and the last-admin guardrail would not notice: it counts the
   // permission, not the path to it.
   'admin.manage': ['view.onboarding.users', 'view.admin'],
+  // You cannot sell what you cannot see. The till reads stock levels to decide
+  // what to offer and to refuse an oversell, and that read is gated on
+  // `inventory.view` — so a role allowed to bill but not to read stock opens
+  // Quick Billing to an empty product list, which reads as "the shop has
+  // nothing" rather than "the request was refused". The seeded Cashier happened
+  // to hold an inventory screen and hid this; a billing-only role did not.
+  'sales.bill': ['inventory.view'],
 };
 
 /** Screens whose presence implies a coarse read key the API still checks. */

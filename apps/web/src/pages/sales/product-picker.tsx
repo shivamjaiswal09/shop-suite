@@ -118,7 +118,15 @@ export function ProductPicker({
       </div>
 
       <div className="grid max-h-[28rem] grid-cols-1 gap-2 overflow-y-auto p-4 sm:grid-cols-2">
-        {visible.length === 0 ? (
+        {stock.error ? (
+          // A refused or failed stock read leaves every product looking like it
+          // has none, and blaming the filters for that sends whoever is at the
+          // counter hunting through categories for stock that is on the shelf.
+          <p className="col-span-full py-10 text-center text-sm text-destructive">
+            Stock could not be read, so nothing can be shown as available.{' '}
+            {(stock.error as Error).message}
+          </p>
+        ) : visible.length === 0 ? (
           <p className="col-span-full py-10 text-center text-sm text-muted-foreground">
             Nothing matches. Try another category, or untick “In stock only”.
           </p>

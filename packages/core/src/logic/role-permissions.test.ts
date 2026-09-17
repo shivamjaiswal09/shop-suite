@@ -37,7 +37,10 @@ describe('normalizeRolePermissions', () => {
   });
 
   it('drops strings that are not permissions', () => {
+    // `inventory.view` rides along because billing implies it; the point here
+    // is that the two misspellings do not survive.
     expect(normalizeRolePermissions(['sales.bill', 'sales.bil', 'nonsense'] as string[])).toEqual([
+      'inventory.view',
       'view.sales.billing',
       'sales.bill',
     ]);
@@ -45,6 +48,7 @@ describe('normalizeRolePermissions', () => {
 
   it('de-duplicates', () => {
     expect(normalizeRolePermissions(['sales.bill', 'sales.bill'])).toEqual([
+      'inventory.view',
       'view.sales.billing',
       'sales.bill',
     ]);
@@ -175,5 +179,26 @@ describe('firstVisiblePath within a section', () => {
 
   it('still walks the whole tree when no section is named', () => {
     expect(firstVisiblePath(all)).toBeTruthy();
+  });
+});
+
+describe('a role that can bill can read stock', () => {
+  it('grants inventory.view alongside sales.bill', () => {
+    // The till reads stock levels to decide what to offer. Without this the
+    // request is refused, every product resolves to zero available, and the
+    // picker shows an empty shop rather than an error.
+    const perms = normalizeRolePermissions(['sales.bill']);
+    expect(has(perms, 'inventory.view')).toBe(true);
+    expect(has(perms, 'view.sales.billing')).toBe(true);
+  });
+
+  it('does not hand out any inventory screen for it', () => {
+    // A coarse read key is not a reason to put Store Stock in the sidebar.
+    const perms = normalizeRolePermissions(['sales.bill']);
+    expect(perms.filter((p) => p.startsWith('view.inventory.'))).toEqual([]);
+  });
+
+  it('leaves a role without billing alone', () => {
+    expect(has(normalizeRolePermissions(['closing.perform']), 'inventory.view')).toBe(false);
   });
 });

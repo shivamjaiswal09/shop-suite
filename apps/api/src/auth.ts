@@ -1,4 +1,5 @@
 import { hash, verify } from '@node-rs/argon2';
+import { normalizeRolePermissions } from '@shop/core';
 import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from './db.ts';
@@ -124,7 +125,13 @@ export async function principalFrom(request: FastifyRequest): Promise<Principal 
     userId: user.id,
     companyId: user.companyId,
     isSuperAdmin: user.isSuperAdmin,
-    permissions: user.isSuperAdmin ? ['*'] : (user.role?.permissions ?? []),
+    // Normalised on the way out, not just on the way in. The stored list is a
+    // record of what an admin chose; the implications of those choices are a
+    // rule, and a rule that changes must apply to roles already saved rather
+    // than waiting for someone to re-save each one.
+    permissions: user.isSuperAdmin
+      ? ['*']
+      : normalizeRolePermissions(user.role?.permissions ?? []),
     name: user.name,
     email: user.email,
   };
