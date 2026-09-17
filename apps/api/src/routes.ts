@@ -578,11 +578,21 @@ export async function registerRoutes(app: FastifyInstance) {
 
   app.get('/locations', async (request) => {
     const query = z
-      .object({ companyId: z.string().optional(), includeInactive: z.coerce.boolean().optional() })
+      .object({
+        companyId: z.string().optional(),
+        // The client has always sent this and the route has always ignored it,
+        // so every caller asking for stores was handed warehouses too.
+        kind: z.enum(['store', 'warehouse']).optional(),
+        includeInactive: z.coerce.boolean().optional(),
+      })
       .parse(request.query);
     const { companyId } = requireCompany(who(request), query.companyId);
     return prisma.stockLocation.findMany({
-      where: { companyId, ...(query.includeInactive ? {} : { active: true }) },
+      where: {
+        companyId,
+        ...(query.kind ? { kind: query.kind } : {}),
+        ...(query.includeInactive ? {} : { active: true }),
+      },
       orderBy: [{ kind: 'asc' }, { name: 'asc' }],
     });
   });

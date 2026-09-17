@@ -31,6 +31,14 @@ export function BillFromCard() {
   const [pan, setPan] = useState('');
   const [locationIds, setLocationIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /** The entity being edited, held as a draft so a half-typed GSTIN is not saved. */
+  const [editing, setEditing] = useState<{
+    id: string;
+    legalName: string;
+    gstin: string;
+    pan: string;
+    addressLine: string;
+  } | null>(null);
 
   const all = entities.data ?? [];
   const storeList = stores.data ?? [];
@@ -49,6 +57,28 @@ export function BillFromCard() {
       setGstin('');
       setPan('');
       setLocationIds([]);
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editing || !user || !editing.legalName.trim()) return;
+    setError(null);
+    try {
+      await update.mutateAsync({
+        id: editing.id,
+        // Empty clears rather than leaves alone, which is what an emptied box
+        // on a form means.
+        patch: {
+          legalName: editing.legalName.trim(),
+          gstin: editing.gstin.trim() || null,
+          pan: editing.pan.trim() || null,
+          addressLine: editing.addressLine.trim() || null,
+        },
+        actorId: user.id,
+      });
+      setEditing(null);
     } catch (cause) {
       setError((cause as Error).message);
     }
@@ -149,29 +179,92 @@ export function BillFromCard() {
         ) : (
           all.map((entity) => (
             <div key={entity.id} className={entity.active ? undefined : 'opacity-50'}>
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1.5">
-                <div className="min-w-0">
-                  <p className="font-medium">{entity.legalName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {entity.gstin ? `GSTIN ${entity.gstin}` : 'No GSTIN'}
-                    {entity.pan ? ` · PAN ${entity.pan}` : ''}
-                  </p>
+              {editing?.id === entity.id ? (
+                <div className="grid gap-3 border-b border-border pb-3 sm:grid-cols-3">
+                  <div>
+                    <Label htmlFor={`e-legal-${entity.id}`}>Legal name</Label>
+                    <Input
+                      id={`e-legal-${entity.id}`}
+                      value={editing.legalName}
+                      onChange={(e) => setEditing({ ...editing, legalName: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor={`e-gstin-${entity.id}`}>GSTIN</Label>
+                    <Input
+                      id={`e-gstin-${entity.id}`}
+                      value={editing.gstin}
+                      onChange={(e) => setEditing({ ...editing, gstin: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor={`e-pan-${entity.id}`}>PAN</Label>
+                    <Input
+                      id={`e-pan-${entity.id}`}
+                      value={editing.pan}
+                      onChange={(e) => setEditing({ ...editing, pan: e.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label htmlFor={`e-addr-${entity.id}`}>Address</Label>
+                    <Input
+                      id={`e-addr-${entity.id}`}
+                      value={editing.addressLine}
+                      onChange={(e) => setEditing({ ...editing, addressLine: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <Button disabled={update.isPending} onClick={() => void saveEdit()}>
+                      {update.isPending ? 'Saving…' : 'Save'}
+                    </Button>
+                    <Button variant="outline" onClick={() => setEditing(null)}>
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    user &&
-                    update.mutate({
-                      id: entity.id,
-                      patch: { active: !entity.active },
-                      actorId: user.id,
-                    })
-                  }
-                >
-                  {entity.active ? 'Deactivate' : 'Reactivate'}
-                </Button>
-              </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1.5">
+                  <div className="min-w-0">
+                    <p className="font-medium">{entity.legalName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {entity.gstin ? `GSTIN ${entity.gstin}` : 'No GSTIN'}
+                      {entity.pan ? ` · PAN ${entity.pan}` : ''}
+                      {entity.addressLine ? ` · ${entity.addressLine}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setEditing({
+                          id: entity.id,
+                          legalName: entity.legalName,
+                          gstin: entity.gstin ?? '',
+                          pan: entity.pan ?? '',
+                          addressLine: entity.addressLine ?? '',
+                        })
+                      }
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        user &&
+                        update.mutate({
+                          id: entity.id,
+                          patch: { active: !entity.active },
+                          actorId: user.id,
+                        })
+                      }
+                    >
+                      {entity.active ? 'Deactivate' : 'Reactivate'}
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">Billable from:</span>
