@@ -34,8 +34,6 @@ export const stockLocationSchema = z.object({
   city: z.string().optional(),
   state: z.string().optional(),
   phone: z.string().optional(),
-  /** Stores may be separately GST-registered; warehouses usually are not. */
-  gstin: z.string().optional(),
   active: z.boolean().default(true),
 });
 export type StockLocation = z.infer<typeof stockLocationSchema>;

@@ -79,7 +79,6 @@ model StockLocation {
   city        String?
   state       String?
   phone       String?
-  gstin       String?
   active      Boolean      @default(true)
   createdAt   DateTime     @default(now())
 

@@ -681,13 +681,16 @@ describe('bill-from entities', () => {
       gstin: '29AAAAA0000A1Z5',
       locationIds: [store.id],
     });
-    await repos.masters.createBillFrom({
+    const theirs = await repos.masters.createBillFrom({
       legalName: 'S.M Traders',
       locationIds: otherStoreId ? [otherStoreId] : [],
     });
 
-    const offered = billFromFor(await repos.masters.billFrom(), store.id);
-    expect(offered.map((e) => e.id)).toEqual([mine.id]);
+    // Asserted about the two created here rather than the whole list, which
+    // also carries whatever the seed set up.
+    const offered = billFromFor(await repos.masters.billFrom(), store.id).map((e) => e.id);
+    expect(offered).toContain(mine.id);
+    expect(offered).not.toContain(theirs.id);
   });
 
   it('stops offering a deactivated entity', async () => {
@@ -699,7 +702,8 @@ describe('bill-from entities', () => {
 
     await repos.masters.updateBillFrom(entity.id, { active: false }, actor);
 
-    expect(billFromFor(await repos.masters.billFrom(true), store.id)).toHaveLength(0);
+    const offered = billFromFor(await repos.masters.billFrom(true), store.id);
+    expect(offered.map((e) => e.id)).not.toContain(entity.id);
   });
 
   it('snapshots the entity onto the bill', async () => {

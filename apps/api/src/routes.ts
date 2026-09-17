@@ -596,7 +596,6 @@ export async function registerRoutes(app: FastifyInstance) {
         name: z.string().min(1),
         city: z.string().optional(),
         phone: z.string().optional(),
-        gstin: z.string().optional(),
       })
       .parse(request.body);
 
@@ -631,7 +630,6 @@ export async function registerRoutes(app: FastifyInstance) {
         name: z.string().min(1).optional(),
         city: z.string().optional(),
         phone: z.string().optional(),
-        gstin: z.string().optional(),
         active: z.boolean().optional(),
       })
       .parse(request.body);

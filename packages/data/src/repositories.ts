@@ -213,7 +213,6 @@ export interface NewLocation {
   city?: string;
   state?: string;
   phone?: string;
-  gstin?: string;
   createdBy: string;
 }
 
@@ -312,7 +311,6 @@ export interface LocationPatch {
   city?: string;
   state?: string;
   phone?: string;
-  gstin?: string;
   active?: boolean;
 }
 

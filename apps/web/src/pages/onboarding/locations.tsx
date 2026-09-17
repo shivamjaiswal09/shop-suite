@@ -42,7 +42,6 @@ export function OnboardLocationsPage() {
         name: values.name ?? '',
         city: values.city || undefined,
         phone: values.phone || undefined,
-        gstin: values.gstin || undefined,
         createdBy: user.id,
       });
   };
@@ -86,7 +85,6 @@ export function OnboardLocationsPage() {
               { name: 'name', label: 'Name', required: true, placeholder: 'Koramangala Store', span: 2 },
               { name: 'city', label: 'City', placeholder: 'Bengaluru' },
               { name: 'phone', label: 'Phone' },
-              { name: 'gstin', label: 'GSTIN', span: 2 },
             ]}
           />
         </Card>
@@ -100,7 +98,6 @@ export function OnboardLocationsPage() {
                 <Th>Code</Th>
                 <Th>Kind</Th>
                 <Th>City</Th>
-                <Th>GSTIN</Th>
                 <Th className="text-right">Status</Th>
                 <Th className="w-24 text-right">Actions</Th>
               </tr>
@@ -117,7 +114,6 @@ export function OnboardLocationsPage() {
                       <Badge tone={location.kind === 'store' ? 'info' : 'neutral'}>{location.kind}</Badge>
                     </Td>
                     <Td className="text-muted-foreground">{location.city ?? '—'}</Td>
-                    <Td className="text-xs text-muted-foreground">{location.gstin ?? '—'}</Td>
                     <Td className="text-right">
                       <Badge tone={location.active ? 'success' : 'neutral'}>
                         {location.active ? 'active' : 'inactive'}
@@ -136,7 +132,6 @@ export function OnboardLocationsPage() {
                               { name: 'name', label: 'Name', initial: location.name, required: true, span: 3 },
                               { name: 'city', label: 'City', initial: location.city ?? '' },
                               { name: 'phone', label: 'Phone', initial: location.phone ?? '' },
-                              { name: 'gstin', label: 'GSTIN', initial: location.gstin ?? '' },
                               activeField(location.active),
                             ],
                           })
@@ -247,8 +242,7 @@ export function OnboardLocationsPage() {
               name: values.name,
               city: values.city || undefined,
               phone: values.phone || undefined,
-              gstin: values.gstin || undefined,
-              active: values.active === 'true',
+                    active: values.active === 'true',
             },
           });
         }}

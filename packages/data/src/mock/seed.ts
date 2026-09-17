@@ -211,8 +211,8 @@ export function createSeededStore(): InMemoryStore {
     createdAt: SEED_AT,
   };
 
-  const storeA = { id: store.nextId('loc'), companyId, kind: 'store' as const, code: 'ST-JYN', name: 'Jayanagar Store', city: 'Bengaluru', state: 'Karnataka', phone: '+91 80 4000 1001', gstin: '29AABCN1234R1ZQ', active: true };
-  const storeB = { id: store.nextId('loc'), companyId, kind: 'store' as const, code: 'ST-IND', name: 'Indiranagar Store', city: 'Bengaluru', state: 'Karnataka', phone: '+91 80 4000 1002', gstin: '29AABCN1234R2ZP', active: true };
+  const storeA = { id: store.nextId('loc'), companyId, kind: 'store' as const, code: 'ST-JYN', name: 'Jayanagar Store', city: 'Bengaluru', state: 'Karnataka', phone: '+91 80 4000 1001', active: true };
+  const storeB = { id: store.nextId('loc'), companyId, kind: 'store' as const, code: 'ST-IND', name: 'Indiranagar Store', city: 'Bengaluru', state: 'Karnataka', phone: '+91 80 4000 1002', active: true };
 
   // Warehouses are independent of stores — each can supply several of them.
   const whCentral = { id: store.nextId('loc'), companyId, kind: 'warehouse' as const, code: 'WH-PEENYA', name: 'Peenya Central Warehouse', city: 'Bengaluru', state: 'Karnataka', active: true };
@@ -297,6 +297,21 @@ export function createSeededStore(): InMemoryStore {
       active: true,
     };
   });
+
+  // One entity mapped to both stores, matching how production was seeded from
+  // each company's own legal name. Without it the mock would show no supplier
+  // on a bill while the real API shows one.
+  store.billFromEntities = [
+    {
+      id: store.nextId('bfr'),
+      companyId,
+      legalName: 'Nandi Retail Pvt Ltd',
+      gstin: '29AABCN1234R1ZQ',
+      pan: 'AABCN1234R',
+      locationIds: [storeA.id, storeB.id],
+      active: true,
+    },
+  ];
 
   store.reasonCodes = [
     { id: store.nextId('rsn'), usage: 'return', code: 'DMG', name: 'Damaged in transit', active: true },

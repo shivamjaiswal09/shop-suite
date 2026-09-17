@@ -149,7 +149,6 @@ export class MockRepositories implements Repositories {
         city: input.city,
         state: input.state,
         phone: input.phone,
-        gstin: input.gstin,
         active: true,
       });
       this.store.locations.push(location);
