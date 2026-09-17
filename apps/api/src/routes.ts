@@ -11,6 +11,7 @@ import {
   recordFailedLogin,
   hashPassword,
   HttpError,
+  mayProceedWithStalePassword,
   principalFrom,
   requireAuth,
   requireCompany,
@@ -116,7 +117,25 @@ export async function registerRoutes(app: FastifyInstance) {
   // Every handler resolves the caller once, up front.
   app.decorateRequest('principal', null);
   app.addHook('preHandler', async (request) => {
-    (request as { principal?: Principal | null }).principal = await principalFrom(request);
+    const principal = await principalFrom(request);
+    (request as { principal?: Principal | null }).principal = principal;
+
+    // A password somebody else chose buys nothing but the chance to replace it.
+    //
+    // Enforced here rather than in the apps because a client is whatever the
+    // caller happens to be running: a screen that refuses to dismiss stops an
+    // honest user of the current build, and stops nobody else — not an older
+    // build that has never heard of the flag, not curl. One gate, at the only
+    // boundary every caller has to cross.
+    if (principal?.mustChangePassword) {
+      const route = (request as { routeOptions?: { url?: string } }).routeOptions?.url;
+      if (!mayProceedWithStalePassword(route)) {
+        throw new HttpError(
+          403,
+          'Your password was set by an administrator and must be changed before you can continue.',
+        );
+      }
+    }
   });
 
   const who = (request: unknown) => (request as { principal: Principal | null }).principal;

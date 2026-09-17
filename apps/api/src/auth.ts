@@ -46,6 +46,13 @@ export class HttpError extends Error {
 
 export interface Principal {
   userId: string;
+  /**
+   * Somebody else chose this caller's password. Until they replace it, the
+   * only routes open to them are the ones that let them do so — enforced in
+   * `registerRoutes`' preHandler, not in the client, because a client is
+   * whatever the caller is running.
+   */
+  mustChangePassword: boolean;
   /** Null for a super admin, who sits outside every company. */
   companyId: string | null;
   isSuperAdmin: boolean;
@@ -151,6 +158,7 @@ export async function principalFrom(request: FastifyRequest): Promise<Principal 
     userId: user.id,
     companyId: user.companyId,
     isSuperAdmin: user.isSuperAdmin,
+    mustChangePassword: user.mustChangePassword,
     permissions: user.isSuperAdmin ? ['*'] : normalizeRolePermissions(snapshot ?? []),
     name: user.name,
     email: user.email,
@@ -234,6 +242,30 @@ export function purgeExpired(): void {
   const cutoff = new Date(now.getTime() - WINDOW_MS);
   void prisma.loginAttempt.deleteMany({ where: { at: { lt: cutoff } } }).catch(() => {});
   void prisma.session.deleteMany({ where: { expiresAt: { lt: now } } }).catch(() => {});
+}
+
+/**
+ * The only routes open to somebody who must change their password: reading who
+ * they are, changing it, and leaving.
+ */
+const OPEN_WHILE_PASSWORD_STALE = new Set([
+  '/health',
+  '/auth/me',
+  '/auth/login',
+  '/auth/logout',
+  '/auth/change-password',
+]);
+
+/**
+ * Whether a caller with a stale password may reach this route.
+ *
+ * Takes the route's registered *pattern* (`/users/:id`), not the request path,
+ * so a parameterised route cannot be slipped past on a URL that happens to
+ * differ. An unknown route fails closed: if we cannot tell what is being asked
+ * for, the answer is no.
+ */
+export function mayProceedWithStalePassword(route: string | undefined): boolean {
+  return route !== undefined && OPEN_WHILE_PASSWORD_STALE.has(route);
 }
 
 export function requireAuth(principal: Principal | null): Principal {
