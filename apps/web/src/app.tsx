@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
 import { AppShell } from './components/app-shell';
 import { RequireScreen } from './components/require-screen';
+import { SectionLanding } from './components/section-landing';
 import { PlatformConsolePage } from './pages/platform/companies';
 import { AdministrationPage } from './pages/administration';
 import { DayEndClosingPage } from './pages/closing/day-end';
@@ -120,7 +121,7 @@ export function App() {
         </Route>
 
         <Route path="inventory">
-          <Route index element={<Navigate to="/inventory/stores" replace />} />
+          <Route index element={<SectionLanding sectionId="inventory" />} />
           <Route path="stores" element={<RequireScreen screen="view.inventory.stores"><StoreStockPage /></RequireScreen>} />
           <Route path="warehouses" element={<RequireScreen screen="view.inventory.warehouses"><WarehouseStockPage /></RequireScreen>} />
           <Route path="all" element={<RequireScreen screen="view.inventory.all"><AllInventoryPage /></RequireScreen>} />

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Permission } from '../entities/user.ts';
+import { SCREEN_PERMISSIONS, type Permission } from '../entities/user.ts';
 import { NAV_TREE } from '../nav.ts';
 import {
+  firstVisiblePath,
   isNodeVisible,
   normalizeRolePermissions,
   setActionGranted,
@@ -144,5 +145,35 @@ describe('visibility', () => {
     // Which is why the API refuses to leave a company without an admin: this is
     // what that person's sidebar would look like.
     expect(visibleNav(new Set())).toEqual([]);
+  });
+});
+
+describe('firstVisiblePath within a section', () => {
+  const all = new Set<string>(SCREEN_PERMISSIONS);
+
+  it('follows menu order, so reordering the nav moves the landing page', () => {
+    // Total Inventory sits first under Inventory; the landing must be it, not
+    // whichever child happened to be hardcoded.
+    expect(firstVisiblePath(all, 'inventory')).toBe('/inventory/all');
+  });
+
+  it('stays inside the section when the first entry is not permitted', () => {
+    // Otherwise a role without Total Inventory is bounced out of Inventory
+    // altogether, to whatever the whole tree starts with.
+    const granted = new Set<string>(
+      [...SCREEN_PERMISSIONS].filter((p) => p !== 'view.inventory.all'),
+    );
+    expect(firstVisiblePath(granted, 'inventory')).toBe('/inventory/stores');
+  });
+
+  it('returns nothing when the role can open none of the section', () => {
+    const granted = new Set<string>(
+      [...SCREEN_PERMISSIONS].filter((p) => !p.startsWith('view.inventory.')),
+    );
+    expect(firstVisiblePath(granted, 'inventory')).toBeNull();
+  });
+
+  it('still walks the whole tree when no section is named', () => {
+    expect(firstVisiblePath(all)).toBeTruthy();
   });
 });

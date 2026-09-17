@@ -161,8 +161,20 @@ export function visibleNav(
  * visible screen, or null if they have none, which is a company-configuration
  * problem rather than a navigation one.
  */
-export function firstVisiblePath(granted: ReadonlySet<string>): string | null {
-  const visible = visibleNav(granted);
+export function firstVisiblePath(
+  granted: ReadonlySet<string>,
+  /**
+   * Restrict the search to one section, by its nav id.
+   *
+   * A section's landing route wants the first child *of that section* the role
+   * can open — menu order, minus what they cannot see. Without this, someone
+   * who lacks the first child lands wherever the whole tree starts, which is
+   * usually another module entirely.
+   */
+  sectionId?: string,
+): string | null {
+  const all = visibleNav(granted);
+  const visible = sectionId ? (all.find((node) => node.id === sectionId)?.children ?? []) : all;
   const walk = (nodes: readonly NavNode[]): string | null => {
     for (const node of nodes) {
       if (node.children?.length) {

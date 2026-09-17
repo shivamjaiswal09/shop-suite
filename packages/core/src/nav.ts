@@ -91,6 +91,14 @@ export const NAV_TREE: readonly NavNode[] = [
     label: 'Inventory',
     path: '/inventory',
     children: [
+      // Total first: the question "how much do we have" comes before "where is
+      // it", and the two places below answer the second one.
+      {
+        id: 'inventory.all',
+        label: 'Total Inventory',
+        path: '/inventory/all',
+        screen: 'view.inventory.all',
+      },
       {
         id: 'inventory.stores',
         label: 'Store Stock',
@@ -105,12 +113,6 @@ export const NAV_TREE: readonly NavNode[] = [
         path: '/inventory/warehouses',
         screen: 'view.inventory.warehouses',
         actions: ['inventory.adjust'],
-      },
-      {
-        id: 'inventory.all',
-        label: 'Total Inventory',
-        path: '/inventory/all',
-        screen: 'view.inventory.all',
       },
       {
         id: 'inventory.transfers',
