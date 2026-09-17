@@ -56,17 +56,13 @@ export function QuickBillingPage() {
   /* ------------------------------------------------------------ the wizard */
 
   const billFields = useBillFields();
-  const [step, setStep] = useState<'cart' | 'customer' | 'payment'>('cart');
+  const [step, setStep] = useState<'cart' | 'checkout'>('cart');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [showMissing, setShowMissing] = useState(false);
 
   const activeFields = useMemo(() => billFields.data ?? [], [billFields.data]);
   const missing = missingRequiredFields(activeFields, fieldValues);
   const missingKeys = new Set(showMissing ? missing.map((f) => f.key) : []);
-  /** Label/value pairs actually filled in, in the order an admin configured. */
-  const enteredDetails = activeFields
-    .filter((f) => (fieldValues[f.key] ?? '').trim())
-    .map((f) => [f.label, fieldValues[f.key]!.trim()] as const);
 
   // Recognising a returning customer is the point of a customer-scope field:
   // the counter types a phone it has seen before and the rest fills itself.
@@ -369,13 +365,13 @@ export function QuickBillingPage() {
             <Button
               className="w-full"
               disabled={cart.lines.length === 0}
-              onClick={() => setStep('customer')}
+              onClick={() => setStep('checkout')}
             >
-              Continue to customer
+              Continue
             </Button>
           ) : null}
 
-          {step === 'customer' ? (
+          {step === 'checkout' && activeFields.length > 0 ? (
             <Card>
               <CardHeader title="Customer" description="Recorded against this bill." />
               <CardBody className="space-y-4">
@@ -387,29 +383,14 @@ export function QuickBillingPage() {
                     setFieldValues((prev) => ({ ...prev, [key]: value }))
                   }
                 />
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => setStep('cart')}>
-                    Back to cart
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      // Revealed only on an attempt, so the form does not open
-                      // covered in errors for fields nobody has had a chance to
-                      // fill in yet.
-                      setShowMissing(true);
-                      if (missingRequiredFields(activeFields, fieldValues).length === 0) {
-                        setStep('payment');
-                      }
-                    }}
-                  >
-                    Continue to payment
-                  </Button>
-                </div>
+                <Button variant="outline" onClick={() => setStep('cart')}>
+                  Back to cart
+                </Button>
               </CardBody>
             </Card>
           ) : null}
 
-          {step === 'payment' ? (
+          {step === 'checkout' ? (
           <Card>
             <CardHeader title="Payment" description="Split across tenders if needed." />
             <CardBody className="space-y-3">
@@ -487,11 +468,27 @@ export function QuickBillingPage() {
                 <p className="text-xs text-destructive">{(checkout.error as Error).message}</p>
               ) : null}
 
+              {/* The gate lives on the action now that the details sit on the
+                  same screen. Named rather than merely disabled: a dead button
+                  with no reason given is the worst of both. */}
+              {showMissing && missing.length > 0 ? (
+                <p className="text-xs text-destructive">
+                  Fill in {missing.map((f) => f.label).join(', ')} before billing.
+                </p>
+              ) : null}
+
               <Button
                 className="w-full"
                 size="lg"
                 disabled={cart.lines.length === 0 || checkout.isPending || cartIsForeign}
-                onClick={() => void onBill()}
+                onClick={() => {
+                  // Revealed on an attempt, so the form does not open covered in
+                  // errors for fields nobody has had a chance to fill in yet.
+                  setShowMissing(true);
+                  if (missingRequiredFields(activeFields, fieldValues).length === 0) {
+                    void onBill();
+                  }
+                }}
               >
                 <Receipt className="h-4 w-4" />
                 {checkout.isPending
@@ -513,10 +510,6 @@ export function QuickBillingPage() {
               {createOrder.error ? (
                 <p className="text-xs text-destructive">{(createOrder.error as Error).message}</p>
               ) : null}
-
-              <Button variant="outline" className="w-full" onClick={() => setStep('customer')}>
-                Back to customer
-              </Button>
 
               <p className="text-[11px] text-muted-foreground">
                 Billing appends one <code>sale</code> movement per line — stock is never written
@@ -589,27 +582,6 @@ export function QuickBillingPage() {
                 </div>
               )}
 
-              {/* What was captured in the previous step, so the counter can
-                  check it against the customer before taking their money —
-                  the last moment it is cheap to correct. */}
-              {step === 'payment' && enteredDetails.length > 0 ? (
-                <div className="space-y-1.5 rounded-md border border-border p-3">
-                  {enteredDetails.map(([label, value]) => (
-                    <div key={label} className="flex justify-between gap-3 text-sm">
-                      <span className="text-muted-foreground">{label}</span>
-                      <span className="truncate font-medium">{value}</span>
-                    </div>
-                  ))}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="mt-1 h-7 px-2 text-xs"
-                    onClick={() => setStep('customer')}
-                  >
-                    Edit details
-                  </Button>
-                </div>
-              ) : null}
             </CardBody>
           </Card>
 
