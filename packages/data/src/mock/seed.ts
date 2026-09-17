@@ -2,6 +2,7 @@ import {
   calcTotals,
   priceLine,
   signedQty,
+  type Brand,
   type Invoice,
   type Payment,
   type Product,
@@ -311,13 +312,28 @@ export function createSeededStore(): InMemoryStore {
   const skus: Sku[] = [];
   const openingMovements: StockMovement[] = [];
 
+  // Brands are a master now, so the seed creates the rows rather than writing
+  // the name onto the product — `Product.brand` is composed on read and a
+  // string written there would have nothing behind it.
+  const brandByName = new Map<string, string>();
+  for (const name of new Set(CATALOG.map((e) => e.brand))) {
+    const brand: Brand = {
+      id: store.nextId('brd'),
+      companyId,
+      name,
+      active: true,
+    };
+    store.brands.push(brand);
+    brandByName.set(name, brand.id);
+  }
+
   for (const entry of CATALOG) {
     const product: Product = {
       id: store.nextId('prd'),
       companyId,
       name: entry.name,
       categoryId: categoryByName.get(entry.category)!,
-      brand: entry.brand,
+      brandId: brandByName.get(entry.brand),
       active: true,
       createdAt: SEED_AT,
     };

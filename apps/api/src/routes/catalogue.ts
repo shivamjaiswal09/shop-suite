@@ -1,5 +1,6 @@
 import type {
   BillFieldConfig,
+  Brand,
   Category,
   Customer,
   PaymentMethod,
@@ -115,7 +116,6 @@ const publicTax = (row: Tax) => ({
   name: row.name,
   rate: dec(row.rate),
   inclusive: row.inclusive,
-  hsnCode: row.hsnCode ?? undefined,
   active: row.active,
 });
 
@@ -172,15 +172,34 @@ const publicReasonCode = (row: ReasonCode) => ({
   active: row.active,
 });
 
-const publicProduct = (row: Product) => ({
+/**
+ * `brand` is computed rather than stored. The master owns the names, so a
+ * denormalised copy on the product would be one more thing to keep in step —
+ * and every screen that already reads `product.brand` keeps working unchanged.
+ */
+const publicProduct = (row: Product & { brand?: Brand | null; subBrand?: Brand | null }) => ({
   id: row.id,
   companyId: row.companyId,
   name: row.name,
   categoryId: row.categoryId,
-  brand: row.brand ?? undefined,
+  brandId: row.brandId ?? undefined,
+  subBrandId: row.subBrandId ?? undefined,
+  brand: row.brand
+    ? row.subBrand
+      ? `${row.brand.name} · ${row.subBrand.name}`
+      : row.brand.name
+    : undefined,
   description: row.description ?? undefined,
   active: row.active,
   createdAt: row.createdAt.toISOString(),
+});
+
+const publicBrand = (row: Brand) => ({
+  id: row.id,
+  companyId: row.companyId,
+  name: row.name,
+  parentId: row.parentId ?? undefined,
+  active: row.active,
 });
 
 const publicSku = (row: Sku) => ({
@@ -189,6 +208,7 @@ const publicSku = (row: Sku) => ({
   code: row.code,
   name: row.name,
   barcode: row.barcode,
+  hsnCode: row.hsnCode ?? undefined,
   uomId: row.uomId,
   taxId: row.taxId,
   purchasePrice: dec(row.purchasePrice),
@@ -225,6 +245,33 @@ async function assertUomInCompany(uomId: string, companyId: string) {
 async function assertLocationInCompany(locationId: string, companyId: string) {
   const location = await prisma.stockLocation.findFirst({ where: { id: locationId, companyId } });
   if (!location) throw new HttpError(400, 'Unknown location for this company');
+}
+
+/**
+ * Checks the brand pair before it is stored.
+ *
+ * Both ids are kept on the product so a list can name the brand without a join,
+ * and this is the rule that stops them disagreeing: the sub-brand must actually
+ * be a child of the brand given.
+ */
+async function assertBrandPair(
+  companyId: string,
+  brandId: string | undefined,
+  subBrandId: string | undefined,
+) {
+  if (subBrandId && !brandId) throw new HttpError(400, 'A sub-brand needs its brand');
+  if (brandId) {
+    const brand = await prisma.brand.findFirst({ where: { id: brandId, companyId } });
+    if (!brand) throw new HttpError(400, 'Unknown brand for this company');
+    if (brand.parentId) throw new HttpError(400, `${brand.name} is a sub-brand, not a brand`);
+  }
+  if (subBrandId) {
+    const sub = await prisma.brand.findFirst({ where: { id: subBrandId, companyId } });
+    if (!sub) throw new HttpError(400, 'Unknown sub-brand for this company');
+    if (sub.parentId !== brandId) {
+      throw new HttpError(400, `${sub.name} does not belong to the chosen brand`);
+    }
+  }
 }
 
 async function assertCategoryInCompany(categoryId: string, companyId: string) {
@@ -497,6 +544,99 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
       summary: `Tax ${tax.name} updated`,
     });
     return publicTax(tax);
+  });
+
+  /* ----------------------------------------------------------------- brands */
+
+  app.get('/brands', async (request) => {
+    const query = listQuery.parse(request.query);
+    const { companyId } = requireCompany(await who(request), query.companyId);
+    const rows = await prisma.brand.findMany({
+      where: { companyId, ...activeFilter(query.includeInactive) },
+      // Parents before children, then alphabetical, so a caller can build the
+      // tree in one pass without sorting again.
+      orderBy: [{ parentId: 'asc' }, { name: 'asc' }],
+    });
+    return rows.map(publicBrand);
+  });
+
+  app.post('/brands', async (request, reply) => {
+    const body = z
+      .object({
+        companyId: z.string().optional(),
+        name: z.string().min(1),
+        /// Omitted for a top-level brand.
+        parentId: z.string().nullish(),
+      })
+      .parse(request.body);
+    const { caller, companyId } = await gate(request, body.companyId, MANAGE);
+
+    const name = body.name.trim();
+    const parentId = body.parentId || null;
+
+    if (parentId) {
+      const parent = found(
+        await prisma.brand.findFirst({ where: { id: parentId, companyId } }),
+        'Brand',
+        parentId,
+      );
+      // Two levels, enforced here rather than in the schema. Nothing needs a
+      // third, and allowing one by accident makes every consumer handle a tree
+      // it was never designed for.
+      if (parent.parentId) {
+        throw new HttpError(400, `${parent.name} is already a sub-brand — brands nest one level`);
+      }
+    }
+
+    await assertFree(
+      prisma.brand.findFirst({ where: { companyId, parentId, name: sameText(name) } }),
+      parentId ? `That brand already has a sub-brand called ${name}` : `A brand called ${name} already exists`,
+    );
+
+    const created = await prisma.brand.create({ data: { companyId, name, parentId } });
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'brand',
+      entityId: created.id,
+      action: 'create',
+      summary: parentId ? `Sub-brand ${name} added` : `Brand ${name} added`,
+    });
+    reply.code(201);
+    return publicBrand(created);
+  });
+
+  app.patch('/brands/:id', async (request) => {
+    const { id } = idParam.parse(request.params);
+    // `parentId` is absent: moving a sub-brand between brands would silently
+    // re-badge every product under it.
+    const patch = z
+      .object({ name: z.string().min(1).optional(), active: z.boolean().optional() })
+      .parse(request.body);
+
+    const existing = found(await prisma.brand.findUnique({ where: { id } }), 'Brand', id);
+    const { caller, companyId } = await gate(request, existing.companyId, MANAGE);
+
+    const name = patch.name?.trim();
+    if (name) {
+      await assertFree(
+        prisma.brand.findFirst({
+          where: { companyId, parentId: existing.parentId, name: sameText(name), NOT: { id } },
+        }),
+        `A brand called ${name} already exists here`,
+      );
+    }
+
+    const updated = await prisma.brand.update({ where: { id }, data: { ...patch, name } });
+    await audit({
+      companyId,
+      actorId: caller.userId,
+      entity: 'brand',
+      entityId: id,
+      action: 'update',
+      summary: `Brand ${updated.name} updated`,
+    });
+    return publicBrand(updated);
   });
 
   /* ------------------------------------------------------------ bill fields */
@@ -974,6 +1114,9 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
     const { companyId } = requireCompany(await who(request), query.companyId);
     const rows = await prisma.product.findMany({
       where: { companyId, ...activeFilter(query.includeInactive) },
+      // The display brand is composed from the master, so the names have to
+      // come along; there is no copy of them on the product.
+      include: { brand: true, subBrand: true },
       orderBy: { createdAt: 'asc' },
     });
     return rows.map(publicProduct);
@@ -985,22 +1128,26 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
         companyId: z.string().optional(),
         name: z.string().min(1),
         categoryId: z.string(),
-        brand: z.string().optional(),
+        brandId: z.string().optional(),
+        subBrandId: z.string().optional(),
         description: z.string().optional(),
       })
       .parse(request.body);
     const { caller, companyId } = await gate(request, body.companyId, MANAGE);
 
     await assertCategoryInCompany(body.categoryId, companyId);
+    await assertBrandPair(companyId, body.brandId, body.subBrandId);
 
     const product = await prisma.product.create({
       data: {
         companyId,
         name: body.name,
         categoryId: body.categoryId,
-        brand: body.brand,
+        brandId: body.brandId,
+        subBrandId: body.subBrandId,
         description: body.description,
       },
+      include: { brand: true, subBrand: true },
     });
     await audit({
       companyId,
@@ -1020,7 +1167,9 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
       .object({
         name: z.string().min(1).optional(),
         categoryId: z.string().optional(),
-        brand: z.string().optional(),
+        /// Null clears the brand; undefined leaves it alone.
+        brandId: z.string().nullish(),
+        subBrandId: z.string().nullish(),
         description: z.string().optional(),
         active: z.boolean().optional(),
       })
@@ -1030,8 +1179,18 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
     const { caller, companyId } = await gate(request, existing.companyId, MANAGE);
 
     if (patch.categoryId) await assertCategoryInCompany(patch.categoryId, companyId);
+    // Validated against what the product will hold afterwards, not against the
+    // patch alone: changing only the sub-brand still has to agree with the
+    // brand already stored.
+    const nextBrandId = patch.brandId === undefined ? existing.brandId : patch.brandId;
+    const nextSubBrandId = patch.subBrandId === undefined ? existing.subBrandId : patch.subBrandId;
+    await assertBrandPair(companyId, nextBrandId ?? undefined, nextSubBrandId ?? undefined);
 
-    const product = await prisma.product.update({ where: { id }, data: patch });
+    const product = await prisma.product.update({
+      where: { id },
+      data: { ...patch, brandId: nextBrandId, subBrandId: nextSubBrandId },
+      include: { brand: true, subBrand: true },
+    });
     await audit({
       companyId,
       actorId: caller.userId,
@@ -1129,6 +1288,7 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
         code: z.string().min(1),
         name: z.string().trim().optional(),
         barcode: z.string().trim().optional(),
+        hsnCode: z.string().trim().optional(),
         uomId: z.string(),
         taxId: z.string(),
         purchasePrice: z.number().nonnegative().optional(),
@@ -1180,6 +1340,7 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
           code,
           name,
           barcode,
+          hsnCode: body.hsnCode || null,
           uomId: body.uomId,
           taxId: body.taxId,
           purchasePrice: body.purchasePrice ?? 0,
@@ -1233,6 +1394,7 @@ export async function registerCatalogueRoutes(app: FastifyInstance) {
         name: z.string().min(1).optional(),
         /** Null or '' clears it; undefined leaves it alone. */
         barcode: z.string().trim().nullish(),
+        hsnCode: z.string().trim().nullish(),
         uomId: z.string().optional(),
         taxId: z.string().optional(),
         purchasePrice: z.number().nonnegative().optional(),

@@ -1,6 +1,7 @@
 import type {
   AuditLog,
   BillFieldConfig,
+  Brand,
   Category,
   StockLocation,
   StoreWarehouseLink,
@@ -114,10 +115,22 @@ export interface CapturePayment {
   createdBy: string;
 }
 
+export interface NewBrand {
+  name: string;
+  /** Omitted for a top-level brand. */
+  parentId?: string;
+}
+
+export interface BrandPatch {
+  name?: string;
+  active?: boolean;
+}
+
 export interface NewProduct {
   name: string;
   categoryId: string;
-  brand?: string;
+  brandId?: string;
+  subBrandId?: string;
   description?: string;
   createdBy: string;
 }
@@ -130,6 +143,8 @@ export interface NewSku {
   name?: string;
   /** Omitted for anything unbranded or loose. */
   barcode?: string;
+  /** Commodity code for GST. Defaults from the tax when omitted. */
+  hsnCode?: string;
   uomId: string;
   taxId: string;
   purchasePrice?: number;
@@ -338,7 +353,9 @@ export interface ReasonCodePatch {
 export interface ProductPatch {
   name?: string;
   categoryId?: string;
-  brand?: string;
+  /** Null clears it; undefined leaves it alone. */
+  brandId?: string | null;
+  subBrandId?: string | null;
   description?: string;
   active?: boolean;
 }
@@ -348,6 +365,7 @@ export interface SkuPatch {
   name?: string;
   /** Null clears it — a barcode entered by mistake has to be removable. */
   barcode?: string | null;
+  hsnCode?: string | null;
   uomId?: string;
   taxId?: string;
   purchasePrice?: number;
@@ -554,6 +572,9 @@ export interface MasterRepository {
   paymentMethods(includeInactive?: boolean): Promise<PaymentMethod[]>;
   reasonCodes(usage?: ReasonCode['usage'], includeInactive?: boolean): Promise<ReasonCode[]>;
   billFields(includeInactive?: boolean): Promise<BillFieldConfig[]>;
+  brands(includeInactive?: boolean): Promise<Brand[]>;
+  createBrand(input: NewBrand): Promise<Brand>;
+  updateBrand(id: string, patch: BrandPatch, actorId: string): Promise<Brand>;
   /** Phone is unique per company, so this is how a counter finds a walk-in. */
   customerByPhone(phone: string): Promise<Customer | undefined>;
   createCategory(input: NewCategory): Promise<Category>;

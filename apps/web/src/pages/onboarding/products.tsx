@@ -100,11 +100,19 @@ export function ProductsPage() {
                       <p className="font-medium">{sku.name}</p>
                       <p className="text-xs text-muted-foreground">{sku.code}</p>
                     </Td>
-                    <Td>{product?.name ?? '—'}</Td>
+                    <Td>
+                      <p>{product?.name ?? '—'}</p>
+                      {product?.brand ? (
+                        <p className="text-xs text-muted-foreground">{product.brand}</p>
+                      ) : null}
+                    </Td>
                     <Td>
                       <Badge>{categories.get(product?.categoryId ?? '')?.name ?? '—'}</Badge>
                     </Td>
-                    <Td className="tabular text-xs text-muted-foreground">{sku.barcode}</Td>
+                    <Td className="tabular text-xs text-muted-foreground">
+                      <p>{sku.barcode}</p>
+                      {sku.hsnCode ? <p>HSN {sku.hsnCode}</p> : null}
+                    </Td>
                     <Td>{uomById.get(sku.uomId)?.code ?? '—'}</Td>
                     <Td>{taxes.get(sku.taxId)?.name ?? '—'}</Td>
                     <Td className="tabular text-right text-muted-foreground">{money(sku.purchasePrice)}</Td>
@@ -126,6 +134,7 @@ export function ProductsPage() {
                             fields: [
                               { name: 'code', label: 'SKU code', initial: sku.code, required: true },
                               { name: 'barcode', label: 'Barcode', initial: sku.barcode ?? '' },
+                              { name: 'hsnCode', label: 'HSN code', initial: sku.hsnCode ?? '' },
                               { name: 'name', label: 'Name', initial: sku.name, required: true, span: 2 },
                               {
                                 name: 'uomId',
@@ -185,6 +194,9 @@ export function ProductsPage() {
             patch: {
               code: v.code,
               barcode: v.barcode,
+              // '' clears it, matching how barcode behaves — an HSN typed onto
+              // the wrong row has to be removable.
+              hsnCode: v.hsnCode ?? null,
               name: v.name,
               uomId: v.uomId,
               taxId: v.taxId,

@@ -37,6 +37,7 @@ model Company {
 
   categories        Category[]
   billFields        BillFieldConfig[]
+  brands            Brand[]
   unitsOfMeasure    UnitOfMeasure[]
   taxes             Tax[]
   customers         Customer[]
@@ -271,6 +272,32 @@ model Category {
   @@map("categories")
 }
 
+/// Brands and their sub-brands, in one self-referencing table.
+///
+/// One table rather than a Brand and a SubBrand, which would carry identical
+/// columns and identical CRUD. Depth is capped at two by the API, not here: a
+/// sub-brand's parent must itself be top-level.
+model Brand {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String
+  /// Null for a top-level brand; set for a sub-brand.
+  parentId  String?
+  active    Boolean @default(true)
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   Brand?    @relation("BrandTree", fields: [parentId], references: [id], onDelete: NoAction)
+  children Brand[]   @relation("BrandTree")
+  products Product[] @relation("ProductBrand")
+  subBrandProducts Product[] @relation("ProductSubBrand")
+
+  /// Includes parentId, so Ceat/Milaze and MRF/Milaze can both exist while two
+  /// top-level Ceats cannot.
+  @@unique([companyId, parentId, name])
+  @@index([companyId, parentId])
+  @@map("brands")
+}
+
 model UnitOfMeasure {
   id        String  @id @default(cuid())
   companyId String
@@ -442,17 +469,21 @@ model Product {
   companyId   String
   name        String
   categoryId  String
-  brand       String?
+  brandId     String?
+  subBrandId  String?
   description String?
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
 
   company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category Category @relation(fields: [categoryId], references: [id], onDelete: NoAction)
+  brand    Brand?   @relation("ProductBrand", fields: [brandId], references: [id], onDelete: NoAction)
+  subBrand Brand?   @relation("ProductSubBrand", fields: [subBrandId], references: [id], onDelete: NoAction)
   skus     Sku[]
 
   @@index([companyId, active])
   @@index([categoryId])
+  @@index([brandId])
   @@map("products")
 }
 
@@ -473,6 +504,9 @@ model Sku {
   /// NULLs under a unique index. Plenty of stock has no barcode at all —
   /// loose goods, spares, anything unbranded.
   barcode       String?
+  /// Classifies the commodity for GST. Tax carries one too, but tyres are 4011
+  /// and tubes 4013 at the same rate, so per-tax cannot describe a catalogue.
+  hsnCode       String?
   uomId         String
   taxId         String
   purchasePrice Decimal  @db.Decimal(12, 2)

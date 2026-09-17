@@ -1,4 +1,6 @@
+import { subBrandsOf, topLevelBrands } from '@shop/core';
 import {
+  useBrands,
   useCategories,
   useCategoryMap,
   useCreateProduct,
@@ -9,7 +11,7 @@ import {
   useTaxes,
   useUnitsOfMeasure,
 } from '@shop/state';
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input, Label, Select } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
@@ -20,10 +22,12 @@ interface FormState {
   productId: string;
   newProductName: string;
   newProductCategoryId: string;
-  newProductBrand: string;
+  newProductBrandId: string;
+  newProductSubBrandId: string;
   code: string;
   name: string;
   barcode: string;
+  hsnCode: string;
   uomId: string;
   taxId: string;
   purchasePrice: string;
@@ -38,10 +42,12 @@ const EMPTY: FormState = {
   productId: NEW_PRODUCT,
   newProductName: '',
   newProductCategoryId: '',
-  newProductBrand: '',
+  newProductBrandId: '',
+  newProductSubBrandId: '',
   code: '',
   name: '',
   barcode: '',
+  hsnCode: '',
   uomId: '',
   taxId: '',
   purchasePrice: '',
@@ -65,6 +71,7 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
   const categoryById = useCategoryMap();
   const uoms = useUnitsOfMeasure();
   const taxes = useTaxes();
+  const brands = useBrands();
   const createProduct = useCreateProduct();
   const createSku = useCreateSku();
 
@@ -84,6 +91,16 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
         : products.data?.find((p) => p.id === form.productId)?.categoryId),
     ) ?? null;
   const suggestedTaxId = selectedCategory?.defaultTaxId ?? taxes.data?.[0]?.id;
+
+  const brandOptions = useMemo(() => topLevelBrands(brands.data ?? []), [brands.data]);
+  const subBrandOptions = useMemo(
+    () => subBrandsOf(brands.data ?? [], form.newProductBrandId || undefined),
+    [brands.data, form.newProductBrandId],
+  );
+  // HSN classifies the commodity and the tax already carries one, so it is the
+  // sensible starting value — but only a starting value, since tyres and tubes
+  // share a rate and not a code.
+  const suggestedHsn = (taxes.data ?? []).find((t) => t.id === (form.taxId || suggestedTaxId))?.hsnCode ?? '';
 
   const close = () => {
     setForm(EMPTY);
@@ -124,7 +141,8 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
         const product = await createProduct.mutateAsync({
           name: form.newProductName.trim(),
           categoryId,
-          brand: form.newProductBrand.trim() || undefined,
+          brandId: form.newProductBrandId || undefined,
+          subBrandId: form.newProductSubBrandId || undefined,
           createdBy: user.id,
         });
         productId = product.id;
@@ -141,6 +159,7 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
         // to the product's.
         name: form.name.trim() || undefined,
         barcode: form.barcode.trim() || undefined,
+        hsnCode: form.hsnCode.trim() || suggestedHsn || undefined,
         uomId,
         taxId,
         purchasePrice: Number(form.purchasePrice) || 0,
@@ -217,11 +236,46 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
             </div>
             <div>
               <Label htmlFor="p-brand">Brand</Label>
-              <Input
+              <Select
                 id="p-brand"
-                value={form.newProductBrand}
-                onChange={(e) => set('newProductBrand', e.target.value)}
-              />
+                value={form.newProductBrandId}
+                onChange={(e) => {
+                  // Clearing the sub-brand is the point: keeping it would leave
+                  // a child of the previous brand attached to the new one, and
+                  // the API refuses that pair.
+                  set('newProductBrandId', e.target.value);
+                  set('newProductSubBrandId', '');
+                }}
+              >
+                <option value="">— none —</option>
+                {brandOptions.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="p-subbrand">Sub-brand</Label>
+              <Select
+                id="p-subbrand"
+                value={form.newProductSubBrandId}
+                disabled={subBrandOptions.length === 0}
+                onChange={(e) => set('newProductSubBrandId', e.target.value)}
+              >
+                <option value="">
+                  {form.newProductBrandId
+                    ? subBrandOptions.length === 0
+                      ? '— none defined —'
+                      : '— none —'
+                    : '— pick a brand first —'}
+                </option>
+                {subBrandOptions.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </Select>
             </div>
           </div>
         ) : null}
@@ -235,6 +289,16 @@ export function NewSkuDialog({ open, onClose }: { open: boolean; onClose: () => 
               placeholder="ATT-2KG"
               value={form.code}
               onChange={(e) => set('code', e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="hsn">HSN code</Label>
+            <Input
+              id="hsn"
+              className="tabular"
+              placeholder={suggestedHsn || '4011'}
+              value={form.hsnCode}
+              onChange={(e) => set('hsnCode', e.target.value)}
             />
           </div>
           <div>

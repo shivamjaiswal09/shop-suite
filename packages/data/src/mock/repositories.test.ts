@@ -583,6 +583,110 @@ describe('onboarding edits', () => {
   });
 });
 
+describe('brands and sub-brands', () => {
+  it('nests one level, and refuses a third', async () => {
+    const { repos } = await setup();
+    const ceat = await repos.masters.createBrand({ name: 'Ceat' });
+    const milaze = await repos.masters.createBrand({ name: 'Milaze X5', parentId: ceat.id });
+
+    expect(milaze.parentId).toBe(ceat.id);
+    // Nothing here needs a third level, and allowing one by accident makes
+    // every consumer handle a tree it was never designed for.
+    await expect(
+      repos.masters.createBrand({ name: 'Milaze X5 TL', parentId: milaze.id }),
+    ).rejects.toThrow(/one level|sub-brand/i);
+  });
+
+  it('lets two brands share a sub-brand name', async () => {
+    const { repos } = await setup();
+    const ceat = await repos.masters.createBrand({ name: 'Ceat' });
+    const mrf = await repos.masters.createBrand({ name: 'MRF' });
+
+    await repos.masters.createBrand({ name: 'Zoom', parentId: ceat.id });
+    await expect(
+      repos.masters.createBrand({ name: 'Zoom', parentId: mrf.id }),
+    ).resolves.toBeDefined();
+    // But not twice under the same parent.
+    await expect(repos.masters.createBrand({ name: 'Zoom', parentId: ceat.id })).rejects.toThrow(
+      /already/i,
+    );
+  });
+
+  it('refuses two top-level brands with the same name', async () => {
+    const { repos } = await setup();
+    await repos.masters.createBrand({ name: 'Ceat' });
+    await expect(repos.masters.createBrand({ name: 'ceat' })).rejects.toThrow(/already/i);
+  });
+
+  it('refuses a sub-brand that belongs to another brand', async () => {
+    // Both ids are stored so a list can name the brand without a join; this is
+    // the rule that stops the two disagreeing.
+    const { repos, actor } = await setup();
+    const ceat = await repos.masters.createBrand({ name: 'Ceat' });
+    const mrf = await repos.masters.createBrand({ name: 'MRF' });
+    const zoom = await repos.masters.createBrand({ name: 'Zoom', parentId: ceat.id });
+    const category = (await repos.masters.categories())[0]!;
+
+    await expect(
+      repos.products.createProduct({
+        name: 'Mismatched',
+        categoryId: category.id,
+        brandId: mrf.id,
+        subBrandId: zoom.id,
+        createdBy: actor,
+      }),
+    ).rejects.toThrow(/does not belong/i);
+  });
+
+  it('names the brand on the product it is read back from', async () => {
+    const { repos, actor } = await setup();
+    const ceat = await repos.masters.createBrand({ name: 'Ceat' });
+    const milaze = await repos.masters.createBrand({ name: 'Milaze X5', parentId: ceat.id });
+    const category = (await repos.masters.categories())[0]!;
+
+    const withSub = await repos.products.createProduct({
+      name: 'Tyre 3.00-17',
+      categoryId: category.id,
+      brandId: ceat.id,
+      subBrandId: milaze.id,
+      createdBy: actor,
+    });
+    const brandOnly = await repos.products.createProduct({
+      name: 'Tube 3.00-17',
+      categoryId: category.id,
+      brandId: ceat.id,
+      createdBy: actor,
+    });
+
+    expect(withSub.brand).toBe('Ceat · Milaze X5');
+    expect(brandOnly.brand).toBe('Ceat');
+    expect(
+      (await repos.products.listProducts()).find((p) => p.id === withSub.id)?.brand,
+    ).toBe('Ceat · Milaze X5');
+  });
+});
+
+describe('HSN on a SKU', () => {
+  it('keeps what was entered, and is optional', async () => {
+    const { repos, actor } = await setup();
+    const category = (await repos.masters.categories())[0]!;
+    const product = await repos.products.createProduct({
+      name: 'Tyre',
+      categoryId: category.id,
+      createdBy: actor,
+    });
+    const uom = (await repos.masters.unitsOfMeasure())[0]!;
+    const tax = (await repos.masters.taxes())[0]!;
+    const base = { productId: product.id, uomId: uom.id, taxId: tax.id, createdBy: actor };
+
+    const withHsn = await repos.products.createSku({ ...base, code: 'TY-1', hsnCode: '4011' });
+    const without = await repos.products.createSku({ ...base, code: 'TY-2' });
+
+    expect(withHsn.hsnCode).toBe('4011');
+    expect(without.hsnCode ?? null).toBeNull();
+  });
+});
+
 describe('bill field configuration', () => {
   it('starts empty, so billing is unchanged until someone configures it', async () => {
     const { repos } = await setup();

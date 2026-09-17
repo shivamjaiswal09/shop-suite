@@ -1,5 +1,6 @@
 import {
   type BillFieldConfig,
+  brandSchema,
   calcClosing,
   calcTotals,
   deriveInventoryLevel,
@@ -504,6 +505,69 @@ export class MockRepositories implements Repositories {
       return tick(method);
     },
 
+    brands: (includeInactive) =>
+      tick(
+        this.store.brands
+          .filter((b) => includeInactive || b.active)
+          .slice()
+          // Parents before children, then alphabetical, so a caller can build
+          // the tree in one pass.
+          .sort((a, b) => Number(!!a.parentId) - Number(!!b.parentId) || a.name.localeCompare(b.name)),
+      ),
+
+    createBrand: async (input) => {
+      const name = input.name.trim();
+      const parentId = input.parentId;
+      if (parentId) {
+        const parent = this.store.brands.find((b) => b.id === parentId);
+        if (!parent) throw new NotFoundError('Brand', parentId);
+        if (parent.parentId) {
+          throw new Error(`${parent.name} is already a sub-brand — brands nest one level`);
+        }
+      }
+      const clash = this.store.brands.some(
+        (b) => (b.parentId ?? undefined) === parentId && b.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (clash) {
+        throw new Error(
+          parentId ? `That brand already has a sub-brand called ${name}` : `A brand called ${name} already exists`,
+        );
+      }
+      const brand = brandSchema.parse({
+        id: this.store.nextId('brd'),
+        companyId: this.store.company.id,
+        name,
+        parentId,
+        active: true,
+      });
+      this.store.brands.push(brand);
+      return tick(brand);
+    },
+
+    updateBrand: async (id, patch, actorId) => {
+      const brand = this.store.brands.find((b) => b.id === id);
+      if (!brand) throw new NotFoundError('Brand', id);
+      const name = patch.name?.trim();
+      if (name) {
+        const clash = this.store.brands.some(
+          (b) =>
+            b.id !== id &&
+            (b.parentId ?? undefined) === brand.parentId &&
+            b.name.toLowerCase() === name.toLowerCase(),
+        );
+        if (clash) throw new Error(`A brand called ${name} already exists here`);
+      }
+      Object.assign(brand, patch, name ? { name } : {});
+      this.store.bumpAudit({
+        entity: 'brand',
+        entityId: id,
+        action: 'update',
+        summary: `Brand ${brand.name} updated`,
+        actorId,
+      });
+      return tick(brand);
+    },
+
     billFields: (includeInactive) =>
       tick(
         this.store.billFields
@@ -650,7 +714,8 @@ export class MockRepositories implements Repositories {
   };
 
   products: ProductRepository = {
-    listProducts: (all) => tick(this.store.products.filter((p) => all || p.active)),
+    listProducts: (all) =>
+      tick(this.store.products.filter((p) => all || p.active).map((p) => this.withBrandName(p))),
     listSkus: (all) => tick(this.store.skus.filter((s) => all || s.active)),
     skuById: (id) => tick(this.store.skus.find((s) => s.id === id)),
     skuByBarcode: (barcode) => {
@@ -680,11 +745,13 @@ export class MockRepositories implements Repositories {
         companyId: this.store.company.id,
         name: input.name,
         categoryId: input.categoryId,
-        brand: input.brand,
+        brandId: input.brandId,
+        subBrandId: input.subBrandId,
         description: input.description,
         active: true,
         createdAt: this.store.now(),
       });
+      this.assertBrandPair(product.brandId, product.subBrandId);
       this.store.products.push(product);
       this.store.bumpAudit({
         entity: 'product',
@@ -693,7 +760,7 @@ export class MockRepositories implements Repositories {
         summary: `Product ${product.name} created`,
         actorId: input.createdBy,
       });
-      return tick(product);
+      return tick(this.withBrandName(product));
     },
 
     createSku: async (input) => {
@@ -717,6 +784,7 @@ export class MockRepositories implements Repositories {
         // A bill prints the SKU name, so an unnamed SKU borrows its product's.
         name: input.name?.trim() || parent.name,
         barcode,
+        hsnCode: input.hsnCode?.trim() || null,
         uomId: input.uomId,
         taxId: input.taxId,
         purchasePrice: input.purchasePrice ?? 0,
@@ -754,18 +822,31 @@ export class MockRepositories implements Repositories {
       return tick(sku);
     },
 
-    updateProduct: async (id, patch, actorId) =>
-      tick(
-        this.patchRecord({
-          rows: this.store.products,
-          id,
-          patch,
-          schema: productSchema,
-          entity: 'product',
-          label: (p) => `Product ${p.name} updated`,
-          actorId,
-        }),
-      ),
+    updateProduct: async (id, patch, actorId) => {
+      const existing = this.store.products.find((p) => p.id === id);
+      if (!existing) throw new NotFoundError('Product', id);
+      // Checked against what the product will hold afterwards: changing only
+      // the sub-brand still has to agree with the brand already stored. Null
+      // clears, undefined leaves alone, so both collapse to undefined here.
+      const nextBrandId = patch.brandId === undefined ? existing.brandId : patch.brandId ?? undefined;
+      const nextSubBrandId =
+        patch.subBrandId === undefined ? existing.subBrandId : patch.subBrandId ?? undefined;
+      this.assertBrandPair(nextBrandId, nextSubBrandId);
+
+      return tick(
+        this.withBrandName(
+          this.patchRecord({
+            rows: this.store.products,
+            id,
+            patch: { ...patch, brandId: nextBrandId, subBrandId: nextSubBrandId },
+            schema: productSchema,
+            entity: 'product',
+            label: (p) => `Product ${p.name} updated`,
+            actorId,
+          }),
+        ),
+      );
+    },
 
     updateSku: async (id, patch, actorId) => {
       if (patch.barcode !== undefined) {
@@ -1883,6 +1964,37 @@ export class MockRepositories implements Repositories {
     });
     this.store.customers.push(made);
     return made.id;
+  }
+
+  /**
+   * The sub-brand must be a child of the brand given. Both ids sit on the
+   * product so a list can name the brand without a join, and this is what stops
+   * the two disagreeing.
+   */
+  private assertBrandPair(brandId?: string, subBrandId?: string): void {
+    if (subBrandId && !brandId) throw new Error('A sub-brand needs its brand');
+    if (brandId) {
+      const brand = this.store.brands.find((b) => b.id === brandId);
+      if (!brand) throw new NotFoundError('Brand', brandId);
+      if (brand.parentId) throw new Error(`${brand.name} is a sub-brand, not a brand`);
+    }
+    if (subBrandId) {
+      const sub = this.store.brands.find((b) => b.id === subBrandId);
+      if (!sub) throw new NotFoundError('Brand', subBrandId);
+      if (sub.parentId !== brandId) {
+        throw new Error(`${sub.name} does not belong to the chosen brand`);
+      }
+    }
+  }
+
+  /** "Ceat · Milaze X5" — composed on read, never stored. */
+  private withBrandName<T extends { brandId?: string; subBrandId?: string }>(product: T): T {
+    const brand = this.store.brands.find((b) => b.id === product.brandId);
+    const sub = this.store.brands.find((b) => b.id === product.subBrandId);
+    return {
+      ...product,
+      brand: brand ? (sub ? `${brand.name} · ${sub.name}` : brand.name) : undefined,
+    };
   }
 
   private writeInvoice(args: {

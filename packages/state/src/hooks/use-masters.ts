@@ -1,5 +1,5 @@
 import type { Category, ReasonCode, Tax } from '@shop/core';
-import type { BillFieldPatch, NewBillField } from '@shop/data';
+import type { BillFieldPatch, BrandPatch, NewBillField, NewBrand } from '@shop/data';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { qk } from '../query-keys';
@@ -145,5 +145,45 @@ export function useCustomerByPhone(phone: string | undefined) {
     queryFn: () => repos.masters.customerByPhone(needle),
     enabled: needle.length >= 10,
     staleTime: STALE.LIVE,
+  });
+}
+
+/**
+ * Brands and their sub-brands, flat. The caller splits the tree with
+ * `topLevelBrands` / `subBrandsOf` from `@shop/core` rather than the server
+ * sending it twice.
+ */
+export function useBrands(includeInactive = false) {
+  const repos = useRepositories();
+  return useQuery({
+    queryKey: ['masters', 'brands', includeInactive],
+    queryFn: () => repos.masters.brands(includeInactive),
+    staleTime: STALE.ORG,
+  });
+}
+
+export function useCreateBrand() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: NewBrand) => repos.masters.createBrand(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['masters', 'brands'] });
+      // A product's displayed brand is composed from these names.
+      void queryClient.invalidateQueries({ queryKey: ['products'] });
+    },
+  });
+}
+
+export function useUpdateBrand() {
+  const repos = useRepositories();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch, actorId }: { id: string; patch: BrandPatch; actorId: string }) =>
+      repos.masters.updateBrand(id, patch, actorId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['masters', 'brands'] });
+      void queryClient.invalidateQueries({ queryKey: ['products'] });
+    },
   });
 }

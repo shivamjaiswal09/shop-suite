@@ -6,6 +6,12 @@ export const productSchema = z.object({
   companyId: idSchema,
   name: z.string().min(1),
   categoryId: idSchema,
+  brandId: idSchema.optional(),
+  subBrandId: idSchema.optional(),
+  /**
+   * Composed by the API from the master — "Ceat · Milaze X5". Read-only: the
+   * ids above are what a write sets.
+   */
   brand: z.string().optional(),
   description: z.string().optional(),
   active: z.boolean().default(true),
@@ -26,6 +32,8 @@ export const skuSchema = z.object({
   name: z.string().min(1),
   /** Absent for anything unbranded or loose — never an empty string. */
   barcode: z.string().min(1).nullable(),
+  /** Commodity code for GST. Defaults from the tax, but overridable per SKU. */
+  hsnCode: z.string().min(1).nullable().optional(),
   uomId: idSchema,
   taxId: idSchema,
   purchasePrice: moneySchema.nonnegative(),
